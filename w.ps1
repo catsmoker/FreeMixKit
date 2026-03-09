@@ -12,6 +12,8 @@
 # 1. SETUP & ADMIN CHECK
 # ==============================================================================
 
+$ScriptUrl = "https://raw.githubusercontent.com/catsmoker/FreeMixKit/main/w.ps1"
+
 $Host.UI.RawUI.WindowTitle = "FreeMixKit v5.8"
 try {
     # Force big window (120x40 is good for grid)
@@ -25,7 +27,15 @@ catch { }
 
 $currentPrincipal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs
+    $shellExe = if ($PSVersionTable.PSEdition -eq "Core") { "pwsh.exe" } else { "powershell.exe" }
+    $argumentList = if ($PSCommandPath) {
+        "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
+    }
+    else {
+        "-NoProfile -ExecutionPolicy Bypass -Command `"irm $ScriptUrl | iex`""
+    }
+
+    Start-Process $shellExe -ArgumentList $argumentList -Verb RunAs
     Exit
 }
 
