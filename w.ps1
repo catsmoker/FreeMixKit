@@ -21,7 +21,7 @@ try {
     $Host.UI.RawUI.WindowSize = $windowSize
     $Host.UI.RawUI.BufferSize = $bufferSize
 }
-catch { Write-Host "Resize not supported." -ForegroundColor DarkGray }
+catch { }
 
 $currentPrincipal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
