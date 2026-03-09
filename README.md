@@ -33,10 +33,12 @@ FreeMixKit is a Windows PowerShell utility suite with a keyboard-driven grid men
 ## Run
 
 (Recommended) type:
- ```powershell
- irm catsmoker.github.io/w | iex
- ```
- in the powershell terminal.
+
+```powershell
+irm https://raw.githubusercontent.com/catsmoker/FreeMixKit/main/w.ps1 | iex
+```
+
+in the PowerShell terminal.
 
 From this folder:
 

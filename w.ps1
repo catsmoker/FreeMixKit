@@ -680,7 +680,7 @@ $Modules["AddShortcut"] = {
 
     $s = (New-Object -ComObject WScript.Shell).CreateShortcut("$env:USERPROFILE\Desktop\FreeMixKit.lnk")
     $s.TargetPath = "powershell.exe"
-    $s.Arguments = "-NoProfile -ExecutionPolicy Bypass -Command `"irm https://catsmoker.github.io/w | iex`""
+    $s.Arguments = "-NoProfile -ExecutionPolicy Bypass -Command `"irm https://raw.githubusercontent.com/catsmoker/FreeMixKit/main/w.ps1 | iex`""
     if (Test-Path $iconPath) { $s.IconLocation = $iconPath }
     $s.Save()
     
