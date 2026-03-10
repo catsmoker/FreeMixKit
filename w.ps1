@@ -675,7 +675,7 @@ $Modules["AddShortcut"] = {
 }
 
 # Register metadata for modules (single source of truth for labels/descriptions/risk)
-Register-Module "DevChoice" "DEV CHOICE (Full)" "Installs: VS Redists, .NET, Node.js, Python, Java, PowerShell, Git, FFmpeg, 7zip, Notepad++, File Converter, Bibata Cursor." $Modules["DevChoice"] "Medium" @{
+Register-Module "DevChoice" "DEV CHOICE (Full)" "Installs: VS Redists, .NET, Node.js, Python, Java, PowerShell, Git, FFmpeg, nanazip, Notepad++, File Converter, Bibata Cursor." $Modules["DevChoice"] "Medium" @{
     RequiresNetwork = $true
 }
 Register-Module "CleanSystem" "Clean System Junk" "Removes temp files, prefetch, and clears DNS cache." $Modules["CleanSystem"] "Low"
