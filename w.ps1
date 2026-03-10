@@ -4,7 +4,7 @@
     Standalone system utility suite.
 
 .NOTES
-    Author: catsmoker (Refactored by Assistant)
+    Author: catsmoker
     Privileges: Administrator Required
 #>
 
@@ -14,6 +14,20 @@
 
 $ScriptUrl = "https://raw.githubusercontent.com/catsmoker/FreeMixKit/main/w.ps1"
 $AppVersion = "5.8"
+$DataRoot = "C:\\FreeMixKit"
+$DataTemp = Join-Path $DataRoot "temp"
+$DataLogs = Join-Path $DataRoot "logs"
+$DataDownloads = Join-Path $DataRoot "downloads"
+$SessionStamp = Get-Date -Format "yyyyMMdd_HHmmss"
+$SessionLogPath = Join-Path $DataLogs "FreeMixKit_Session_$SessionStamp.log"
+
+foreach ($p in @($DataRoot, $DataTemp, $DataLogs, $DataDownloads)) {
+    if (-not (Test-Path $p)) { New-Item -ItemType Directory -Path $p | Out-Null }
+}
+$dataItem = Get-Item $DataRoot -Force
+if (-not ($dataItem.Attributes -band [IO.FileAttributes]::Hidden)) {
+    $dataItem.Attributes = $dataItem.Attributes -bor [IO.FileAttributes]::Hidden
+}
 
 $Host.UI.RawUI.WindowTitle = "FreeMixKit v$AppVersion"
 try {
@@ -70,6 +84,11 @@ function Write-Log($Message, $Type = "Info") {
     }
     Write-Host " [$((Get-Date).ToString('HH:mm:ss'))] " -NoNewline -ForegroundColor DarkGray
     Write-Host $Message -ForegroundColor $c
+    try {
+        $tag = $Type.ToUpperInvariant()
+        "[{0}] [{1}] {2}" -f (Get-Date).ToString("yyyy-MM-dd HH:mm:ss"), $tag, $Message | Add-Content -Path $SessionLogPath -Encoding UTF8 -ErrorAction SilentlyContinue
+    }
+    catch { }
 }
 
 function Confirm-Action([string]$Prompt) {
@@ -80,7 +99,7 @@ function Confirm-Action([string]$Prompt) {
 function Ensure-WingetInstalled {
     if (Get-Command winget -ErrorAction SilentlyContinue) { return }
     Write-Log "Winget not found. Installing Winget..." "Warn"
-    $bundlePath = Join-Path $env:TEMP "winget.msixbundle"
+    $bundlePath = Join-Path $DataTemp "winget.msixbundle"
     Invoke-WebRequest -Uri "https://aka.ms/getwinget" -OutFile $bundlePath
     Add-AppxPackage -Path $bundlePath
 }
@@ -254,7 +273,6 @@ function Invoke-ModuleAction([string]$ActionKey) {
 $Modules = [ordered]@{}
 $ModuleMeta = [ordered]@{}
 $ModuleResults = New-Object System.Collections.Generic.List[object]
-$Script:TranscriptPath = $null
 
 function Register-Module(
     [string]$Key,
@@ -297,7 +315,7 @@ function Add-ModuleResult([string]$Module, [string]$Status, [string]$Message, [t
 
 function Export-SessionResults {
     $stamp = Get-Date -Format "yyyyMMdd_HHmmss"
-    $resultsPath = Join-Path $env:TEMP "FreeMixKit_ModuleResults_$stamp.csv"
+    $resultsPath = Join-Path $DataLogs "FreeMixKit_ModuleResults_$stamp.csv"
 
     if ($ModuleResults.Count -gt 0) {
         $ModuleResults | Export-Csv -Path $resultsPath -NoTypeInformation -Encoding UTF8
@@ -307,26 +325,6 @@ function Export-SessionResults {
         Write-Log "No module executions to export for this session." "Info"
     }
 
-    if ($Script:TranscriptPath) {
-        try {
-            Stop-Transcript | Out-Null
-            Write-Log "Transcript saved to: $($Script:TranscriptPath)" "Success"
-        }
-        catch {
-            Write-Log "Unable to stop transcript cleanly: $($_.Exception.Message)" "Warn"
-        }
-    }
-}
-
-try {
-    $stamp = Get-Date -Format "yyyyMMdd_HHmmss"
-    $Script:TranscriptPath = Join-Path $env:TEMP "FreeMixKit_Session_$stamp.log"
-    Start-Transcript -Path $Script:TranscriptPath -ErrorAction Stop | Out-Null
-    Write-Log "Session transcript started: $Script:TranscriptPath" "Info"
-}
-catch {
-    $Script:TranscriptPath = $null
-    Write-Log "Transcript unavailable: $($_.Exception.Message)" "Warn"
 }
 
 # --- DEVELOPER ---
@@ -359,14 +357,14 @@ $Modules["DevChoice"] = {
 
     Write-Log "Queued VC++ Redistributables (x86/x64):" "Info"
     foreach ($r in $vcRedists) {
-        Write-Log " - $($r.Version) [$($r.Arch)] -> $($r.Id)" "Info"
+        if ($r.Id) { Write-Log " - $($r.Version) [$($r.Arch)] -> $($r.Id)" "Info" }
     }
 
     $packages = @(
-        # winget resolves latest stable when version suffix omitted
-        "Microsoft.DotNet.SDK", "Microsoft.DotNet.Runtime", "OpenJS.NodeJS.LTS", "Python.Python.3", "EclipseAdoptium.Temurin.JDK",
-        "Microsoft.PowerShell", "Git.Git", "Gyan.FFmpeg", "M2Team.NanaZip", "Notepad++.Notepad++", "AdrienAllard.FileConverter", "Google.GeminiCLI"
-    ) + ($vcRedists | Select-Object -ExpandProperty Id | Sort-Object -Unique)
+        # prefer latest stable IDs that resolve on winget today
+        "Microsoft.DotNet.SDK.10", "Microsoft.DotNet.Runtime.10", "OpenJS.NodeJS.LTS", "Python.Python.3.12", "EclipseAdoptium.Temurin.25.JDK",
+        "Microsoft.PowerShell", "Git.Git", "Gyan.FFmpeg", "M2Team.NanaZip", "Notepad++.Notepad++", "AdrienAllard.FileConverter"
+    ) + ($vcRedists | Where-Object { $_ -and $_.Id } | ForEach-Object { $_.Id } | Sort-Object -Unique)
 
     foreach ($id in $packages) {
         try {
@@ -378,9 +376,14 @@ $Modules["DevChoice"] = {
     }
 
     # 3. Notepad Fix
-    Write-Log "Replacing Notepad with Notepad++..."
-    Get-AppxPackage *Microsoft.WindowsNotepad* | Remove-AppxPackage -AllUsers -ErrorAction SilentlyContinue
-    $reg = @"
+    Write-Log "Replacing Windows Notepad with Notepad++..." "Info"
+    $nppPath = "C:\\Program Files\\Notepad++\\notepad++.exe"
+    if (-not (Test-Path $nppPath)) {
+        Write-Log "Notepad++ not found yet; skipping Notepad replacement." "Warn"
+    }
+    else {
+        Get-AppxPackage *Microsoft.WindowsNotepad* | Remove-AppxPackage -AllUsers -ErrorAction SilentlyContinue
+        $reg = @"
 Windows Registry Editor Version 5.00
 [HKEY_CLASSES_ROOT\.txt]
 @="txtfile"
@@ -390,20 +393,30 @@ Windows Registry Editor Version 5.00
 "NullFile"=""
 [HKEY_CLASSES_ROOT\txtfile]
 @="Text Document"
-[HKEY_CLASSES_ROOT\txtfile\ShellNew]
-"NullFile"=""
+[HKEY_CLASSES_ROOT\txtfile\DefaultIcon]
+@="$nppPath,0"
+[HKEY_CLASSES_ROOT\txtfile\shell\open\command]
+@="\""$nppPath\"" \"%1\""
+[HKEY_CLASSES_ROOT\*\shell\NotepadPlusPlus]
+@="Open with Notepad++"
+"Icon"="\""$nppPath\"""
+[HKEY_CLASSES_ROOT\*\shell\NotepadPlusPlus\command]
+@="\""$nppPath\"" \"%1\""
 "@
-    $reg | Out-File "$env:TEMP\nppfix.reg" -Encoding ASCII -Force
-    Start-Process reg.exe -Argument "import `"$env:TEMP\nppfix.reg`"" -Wait -NoNewWindow
+        $regPath = Join-Path $DataTemp "nppfix.reg"
+        $reg | Out-File $regPath -Encoding ASCII -Force
+        Start-Process reg.exe -Argument "import `"$regPath`"" -Wait -NoNewWindow
+    }
     
     # 4. Bibata
     Write-Log "Installing Bibata Cursor..."
     try {
-        $zip = "$env:TEMP\Bibata.zip"; $dest = "$env:TEMP\Bibata"
+        $zip = "$DataDownloads\\Bibata.zip"; $dest = "$DataDownloads\\Bibata"
         Invoke-WebRequest "https://github.com/ful1e5/Bibata_Cursor/releases/download/v2.0.7/Bibata-Modern-Classic-Windows.zip" -OutFile $zip
         Expand-Archive $zip -Dest $dest -Force
-        $inf = Get-ChildItem "$dest" -Recurse -Filter "*.inf" | Select-Object -First 1
-        if ($inf) { Start-Process "RUNDLL32.EXE" -Arg "SETUPAPI.DLL,InstallHinfSection DefaultInstall 128 $($inf.FullName)" -Wait }
+        $regularInf = Get-ChildItem "$dest" -Recurse -Filter "*.inf" | Where-Object { $_.FullName -match "Regular" } | Select-Object -First 1
+        if (-not $regularInf) { $regularInf = Get-ChildItem "$dest" -Recurse -Filter "*.inf" | Select-Object -First 1 }
+        if ($regularInf) { Start-Process "RUNDLL32.EXE" -Arg "SETUPAPI.DLL,InstallHinfSection DefaultInstall 128 $($regularInf.FullName)" -Wait }
     }
     catch { Write-Log "Cursor Failed" "Error" }
 
@@ -414,6 +427,7 @@ Windows Registry Editor Version 5.00
 $Modules["CleanSystem"] = {
     Write-Log "Cleaning..."
     Remove-Item "$env:TEMP\*" -Recurse -Force -EA SilentlyContinue
+    Remove-Item "$DataTemp\*" -Recurse -Force -EA SilentlyContinue
     Remove-Item "C:\Windows\Temp\*" -Recurse -Force -EA SilentlyContinue
     Remove-Item "C:\Windows\Prefetch\*" -Recurse -Force -EA SilentlyContinue
     Clear-DnsClientCache
@@ -427,12 +441,12 @@ $Modules["SystemRepair"] = {
 $Modules["MalwareScan"] = { 
     $mrt = "$env:SystemRoot\System32\MRT.exe"
     if (!(Test-Path $mrt)) {
-        Invoke-WebRequest "https://go.microsoft.com/fwlink/?LinkID=212732" -OutFile "$env:TEMP\MRT.exe"
-        $mrt = "$env:TEMP\MRT.exe"
+        Invoke-WebRequest "https://go.microsoft.com/fwlink/?LinkID=212732" -OutFile "$DataDownloads\\MRT.exe"
+        $mrt = "$DataDownloads\\MRT.exe"
     }
     Start-Process $mrt -Wait
 
-    $kvrt = Join-Path $env:TEMP "kvrt.exe"
+    $kvrt = Join-Path $DataDownloads "kvrt.exe"
     Invoke-WebRequest "https://devbuilds.s.kaspersky-labs.com/kvrt/latest/full/kvrt.exe" -OutFile $kvrt
     Start-Process $kvrt -Wait
 }
@@ -474,7 +488,7 @@ $Modules["Spicetify"] = {
         else {
             Write-Log "Winget not found. Using direct installer..." "Info"
 
-            $spotifyInstaller = "$env:TEMP\SpotifySetup.exe"
+            $spotifyInstaller = "$DataDownloads\\SpotifySetup.exe"
             Invoke-WebRequest "https://download.scdn.co/SpotifySetup.exe" -OutFile $spotifyInstaller
 
             Start-Process $spotifyInstaller -ArgumentList "/silent" -Wait
@@ -501,7 +515,7 @@ $Modules["Spicetify"] = {
 
     Write-Log "Preparing Spicetify Installation..." "Info"
 
-    $tempDir = $env:TEMP
+    $tempDir = $DataTemp
     $installScript = Join-Path $tempDir "Install-Spicetify.ps1"
 
     $scriptContent = @'
@@ -550,7 +564,7 @@ Read-Host
 $Modules["Legcord"] = {
     try { 
         $u = ((Invoke-RestMethod "https://api.github.com/repos/Legcord/Legcord/releases/latest").assets | Where-Object name -match ".exe" | Select-Object -First 1).browser_download_url
-        Invoke-WebRequest $u -OutFile "$env:TEMP\legcord.exe"; Start-Process "$env:TEMP\legcord.exe" -Wait
+        Invoke-WebRequest $u -OutFile "$DataDownloads\\legcord.exe"; Start-Process "$DataDownloads\\legcord.exe" -Wait
     }
     catch {
         Write-Log "Legcord install failed: $($_.Exception.Message)" "Error"
@@ -565,10 +579,10 @@ $Modules["IAS"] = { Invoke-RestMethod https://coporton.com/ias | Invoke-Expressi
 # --- UTILS ---
 $Modules["WinUtil"] = { Invoke-RestMethod https://christitus.com/win | Invoke-Expression }
 $Modules["RegistryBackup"] = { Start-Process reg.exe -Arg "export HKLM `"$env:USERPROFILE\Desktop\Backup.reg`" /y" -Wait }
-$Modules["FixResolution"] = { Invoke-WebRequest "https://www.monitortests.com/download/cru/cru-1.5.3.zip" -OutFile "$env:TEMP\cru.zip"; Expand-Archive "$env:TEMP\cru.zip" "$env:TEMP\CRU" -Force; Start-Process "$env:TEMP\CRU\CRU.exe" -Wait; Start-Process "$env:TEMP\CRU\restart64.exe" -Wait }
+$Modules["FixResolution"] = { Invoke-WebRequest "https://www.monitortests.com/download/cru/cru-1.5.3.zip" -OutFile "$DataDownloads\\cru.zip"; Expand-Archive "$DataDownloads\\cru.zip" "$DataTemp\\CRU" -Force; Start-Process "$DataTemp\\CRU\\CRU.exe" -Wait; Start-Process "$DataTemp\\CRU\\restart64.exe" -Wait }
 
 $Modules["AddShortcut"] = {
-    $iconUrl = "https://catsmoker.github.io/freemixkit_icon.ico"
+    $iconUrl = "https://raw.githubusercontent.com/catsmoker/FreeMixKit/refs/heads/main/freemixkit_icon.ico"
     $iconPath = "$env:USERPROFILE\Pictures\freemixkit_icon.ico"
     try {
         Invoke-WebRequest $iconUrl -OutFile $iconPath -ErrorAction SilentlyContinue
@@ -597,7 +611,7 @@ $Modules["AddShortcut"] = {
 }
 
 # Register metadata for modules (single source of truth for labels/descriptions/risk)
-Register-Module "DevChoice" "DEV CHOICE (Full)" "Installs: VS Redists, .NET, Node.js, Python, Java, PowerShell, Git, FFmpeg, 7zip, Notepad++, File Converter, GeminiCLI, Bibata Cursor." $Modules["DevChoice"] "Medium" @{
+Register-Module "DevChoice" "DEV CHOICE (Full)" "Installs: VS Redists, .NET, Node.js, Python, Java, PowerShell, Git, FFmpeg, 7zip, Notepad++, File Converter, Bibata Cursor." $Modules["DevChoice"] "Medium" @{
     RequiresNetwork = $true
     RetryCount = 3
     TimeoutSec = 7200
@@ -714,6 +728,29 @@ $LastActionLabel = "None"
 $LastActionStatus = "N/A"
 $LastActionMessage = "No action run yet."
 
+function Move-Selection([string]$Direction, $NavItems, [ref]$SelIdx) {
+    $curr = $NavItems[$SelIdx.Value]
+    $target = $null
+    switch ($Direction) {
+        "Up"   { $target = $NavItems | Where-Object { $_.C -eq $curr.C -and $_.R -lt $curr.R } | Select-Object -Last 1 }
+        "Down" { $target = $NavItems | Where-Object { $_.C -eq $curr.C -and $_.R -gt $curr.R } | Select-Object -First 1 }
+        "Right" {
+            if ($curr.C -eq 0) {
+                $target = $NavItems | Where-Object { $_.C -eq 1 } | Sort-Object { [Math]::Abs($_.R - $curr.R) } | Select-Object -First 1
+            }
+        }
+        "Left" {
+            if ($curr.C -eq 1) {
+                $target = $NavItems | Where-Object { $_.C -eq 0 } | Sort-Object { [Math]::Abs($_.R - $curr.R) } | Select-Object -First 1
+            }
+        }
+    }
+    if ($target) {
+        $idx = [Array]::IndexOf($NavItems, $target)
+        if ($idx -ge 0) { $SelIdx.Value = $idx }
+    }
+}
+
 # ==============================================================================
 # 6. RENDER LOOP
 # ==============================================================================
@@ -818,58 +855,10 @@ while ($true) {
     $k = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
 
     switch ($k.VirtualKeyCode) {
-        38 {
-            # UP
-            # Find prev item in same column
-            $prev = $NavItems | Where-Object { $_.C -eq $curr.C -and $_.R -lt $curr.R } | Select-Object -Last 1
-            if ($prev) { $SelIdx = $NavItems.IndexOf($prev) }
-        }
-        87 {
-            # W = UP
-            $prev = $NavItems | Where-Object { $_.C -eq $curr.C -and $_.R -lt $curr.R } | Select-Object -Last 1
-            if ($prev) { $SelIdx = $NavItems.IndexOf($prev) }
-        }
-        40 {
-            # DOWN
-            # Find next item in same column
-            $next = $NavItems | Where-Object { $_.C -eq $curr.C -and $_.R -gt $curr.R } | Select-Object -First 1
-            if ($next) { $SelIdx = $NavItems.IndexOf($next) }
-        }
-        83 {
-            # S = DOWN
-            $next = $NavItems | Where-Object { $_.C -eq $curr.C -and $_.R -gt $curr.R } | Select-Object -First 1
-            if ($next) { $SelIdx = $NavItems.IndexOf($next) }
-        }
-        39 {
-            # RIGHT
-            if ($curr.C -eq 0) {
-                # Jump to Col 1, similar Row Y
-                $target = $NavItems | Where-Object { $_.C -eq 1 } | Sort-Object { [Math]::Abs($_.R - $curr.R) } | Select-Object -First 1
-                if ($target) { $SelIdx = $NavItems.IndexOf($target) }
-            }
-        }
-        68 {
-            # D = RIGHT
-            if ($curr.C -eq 0) {
-                $target = $NavItems | Where-Object { $_.C -eq 1 } | Sort-Object { [Math]::Abs($_.R - $curr.R) } | Select-Object -First 1
-                if ($target) { $SelIdx = $NavItems.IndexOf($target) }
-            }
-        }
-        37 {
-            # LEFT
-            if ($curr.C -eq 1) {
-                # Jump to Col 0, similar Row Y
-                $target = $NavItems | Where-Object { $_.C -eq 0 } | Sort-Object { [Math]::Abs($_.R - $curr.R) } | Select-Object -First 1
-                if ($target) { $SelIdx = $NavItems.IndexOf($target) }
-            }
-        }
-        65 {
-            # A = LEFT
-            if ($curr.C -eq 1) {
-                $target = $NavItems | Where-Object { $_.C -eq 0 } | Sort-Object { [Math]::Abs($_.R - $curr.R) } | Select-Object -First 1
-                if ($target) { $SelIdx = $NavItems.IndexOf($target) }
-            }
-        }
+        {$_ -in 38,87} { Move-Selection "Up" $NavItems ([ref]$SelIdx) }
+        {$_ -in 40,83} { Move-Selection "Down" $NavItems ([ref]$SelIdx) }
+        {$_ -in 39,68} { Move-Selection "Right" $NavItems ([ref]$SelIdx) }
+        {$_ -in 37,65} { Move-Selection "Left" $NavItems ([ref]$SelIdx) }
         13 {
             # ENTER
             if ($NumberInput) {
