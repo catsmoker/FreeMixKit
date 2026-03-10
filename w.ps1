@@ -13,8 +13,9 @@
 # ==============================================================================
 
 $ScriptUrl = "https://raw.githubusercontent.com/catsmoker/FreeMixKit/main/w.ps1"
+$AppVersion = "5.8"
 
-$Host.UI.RawUI.WindowTitle = "FreeMixKit v5.8"
+$Host.UI.RawUI.WindowTitle = "FreeMixKit v$AppVersion"
 try {
     # Force big window (120x40 is good for grid)
     $bufferSize = New-Object Management.Automation.Host.Size(120, 2000)
@@ -337,13 +338,35 @@ $Modules["DevChoice"] = {
     Ensure-WingetInstalled
 
     # 2. Packages
-    $packages = @(
-        "Microsoft.DotNet.SDK.10", "Microsoft.DotNet.Runtime.10", "OpenJS.NodeJS.LTS", "Python.Python.3", "EclipseAdoptium.Temurin.21.JDK",
-        "Microsoft.PowerShell", "Git.Git", "Gyan.FFmpeg", "7zip.7zip", "Notepad++.Notepad++", "AdrienAllard.FileConverter", "Google.GeminiCLI",
-        "Microsoft.VCRedist.2005.x86", "Microsoft.VCRedist.2005.x64", "Microsoft.VCRedist.2008.x86", "Microsoft.VCRedist.2008.x64",
-        "Microsoft.VCRedist.2010.x86", "Microsoft.VCRedist.2010.x64", "Microsoft.VCRedist.2012.x86", "Microsoft.VCRedist.2012.x64",
-        "Microsoft.VCRedist.2013.x86", "Microsoft.VCRedist.2013.x64", "Microsoft.VCRedist.2015+.x86", "Microsoft.VCRedist.2015+.x64"
+    # VC++ runtime coverage (x86 + x64):
+    # Latest v14 (VS 2017–2026), VS 2015 (VC++ 14.0), 2013 (12.0), 2012 (11.0), 2010 (10.0), 2008 (9.0), 2005 (8.0)
+    $vcRedists = @(
+        @{ Version = "Latest v14 (VS 2017–2026)"; Arch = "x86"; Id = "Microsoft.VCRedist.2015+.x86" },
+        @{ Version = "Latest v14 (VS 2017–2026)"; Arch = "x64"; Id = "Microsoft.VCRedist.2015+.x64" },
+        @{ Version = "Visual Studio 2015 (VC++ 14.0)"; Arch = "x86"; Id = "Microsoft.VCRedist.2015+.x86" },
+        @{ Version = "Visual Studio 2015 (VC++ 14.0)"; Arch = "x64"; Id = "Microsoft.VCRedist.2015+.x64" },
+        @{ Version = "Visual Studio 2013 (VC++ 12.0)"; Arch = "x86"; Id = "Microsoft.VCRedist.2013.x86" },
+        @{ Version = "Visual Studio 2013 (VC++ 12.0)"; Arch = "x64"; Id = "Microsoft.VCRedist.2013.x64" },
+        @{ Version = "Visual Studio 2012 (VC++ 11.0)"; Arch = "x86"; Id = "Microsoft.VCRedist.2012.x86" },
+        @{ Version = "Visual Studio 2012 (VC++ 11.0)"; Arch = "x64"; Id = "Microsoft.VCRedist.2012.x64" },
+        @{ Version = "Visual Studio 2010 (VC++ 10.0)"; Arch = "x86"; Id = "Microsoft.VCRedist.2010.x86" },
+        @{ Version = "Visual Studio 2010 (VC++ 10.0)"; Arch = "x64"; Id = "Microsoft.VCRedist.2010.x64" },
+        @{ Version = "Visual Studio 2008 (VC++ 9.0)"; Arch = "x86"; Id = "Microsoft.VCRedist.2008.x86" },
+        @{ Version = "Visual Studio 2008 (VC++ 9.0)"; Arch = "x64"; Id = "Microsoft.VCRedist.2008.x64" },
+        @{ Version = "Visual Studio 2005 (VC++ 8.0)"; Arch = "x86"; Id = "Microsoft.VCRedist.2005.x86" },
+        @{ Version = "Visual Studio 2005 (VC++ 8.0)"; Arch = "x64"; Id = "Microsoft.VCRedist.2005.x64" }
     )
+
+    Write-Log "Queued VC++ Redistributables (x86/x64):" "Info"
+    foreach ($r in $vcRedists) {
+        Write-Log " - $($r.Version) [$($r.Arch)] -> $($r.Id)" "Info"
+    }
+
+    $packages = @(
+        # winget resolves latest stable when version suffix omitted
+        "Microsoft.DotNet.SDK", "Microsoft.DotNet.Runtime", "OpenJS.NodeJS.LTS", "Python.Python.3", "EclipseAdoptium.Temurin.JDK",
+        "Microsoft.PowerShell", "Git.Git", "Gyan.FFmpeg", "M2Team.NanaZip", "Notepad++.Notepad++", "AdrienAllard.FileConverter", "Google.GeminiCLI"
+    ) + ($vcRedists | Select-Object -ExpandProperty Id | Sort-Object -Unique)
 
     foreach ($id in $packages) {
         try {
@@ -628,7 +651,7 @@ Register-Module "AddShortcut" "Add Shortcut" "Creates a shortcut for this script
 # Define Columns. Type: H=Header, I=Item
 $Col1 = @(
     @{T = "H"; L = "[ DEVELOPER ]" }
-    @{T = "I"; L = "DEV CHOICE (Full)"; A = "DevChoice"; D = "Installs: VS Redists, .NET, Node.js, Python, Java, PowerShell, Git, FFmpeg, 7zip, Notepad++, File Converter, GeminiCLI, Bibata Cursor." }
+    @{T = "I"; L = "DEV CHOICE"; A = "DevChoice"; D = "Installs: VS Redists, .NET, Node.js, Python, Java, PowerShell, Git, FFmpeg, nanazip, Notepad++, File Converter, Bibata Cursor." }
     @{T = "H"; L = "" }
     @{T = "H"; L = "[ MAINTENANCE ]" }
     @{T = "I"; L = "Clean System Junk"; A = "CleanSystem"; D = "Removes temp files, prefetch, and clears DNS cache." }
@@ -704,7 +727,7 @@ while ($true) {
 
     [Console]::SetCursorPosition(0, 0)
     Write-Host $line -F Blue
-    Write-Host " FREEMIXKIT v5.7" -NoNewline -F Cyan
+    Write-Host " FREEMIXKIT v$AppVersion" -NoNewline -F Cyan
     Write-Host " | $timeNow | ARROWS Navigate | NUMBER + ENTER Run | Q/ESC Exit" -F Gray
     Write-Host $line -F Blue
     Write-Host " OS: $($SysInfo.OS) | CPU: $($SysInfo.CPU) | RAM: $($SysInfo.RAM)" -F DarkGray
@@ -783,18 +806,13 @@ while ($true) {
     Write-Host $infoText -F Gray
     [Console]::SetCursorPosition(2, $maxY + 2)
     Write-Host "Risk: " -NoNewline -F Gray
-    Write-Host $risk -NoNewline -F $riskColor
-    Write-Host " | Last: $LastActionLabel | $LastActionStatus" -F DarkGray
-    [Console]::SetCursorPosition(2, $maxY + 3)
-    $lastMsg = $LastActionMessage
-    if ($lastMsg.Length -gt ($uiWidth - 22)) { $lastMsg = $lastMsg.Substring(0, $uiWidth - 25) + "..." }
-    Write-Host "Last message: $lastMsg" -F DarkGray
+    Write-Host $risk -F $riskColor
     [Console]::SetCursorPosition(0, $maxY + 4)
     Write-Host $dash -F Blue
     [Console]::SetCursorPosition(2, $maxY + 5)
     Write-Host "Input: $NumberInput" -F Gray
     [Console]::SetCursorPosition(2, $maxY + 6)
-    Write-Host "Keys: Up/Down move | Left/Right switch column | Type number + Enter | Backspace clear | Q or Esc exit" -F DarkGray
+    Write-Host "Keys: Up/Down/W/S move | Left/Right/A/D switch column | Type number + Enter | Backspace clear | Q or Esc exit" -F DarkGray
 
     # INPUT HANDLING
     $k = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
@@ -806,9 +824,19 @@ while ($true) {
             $prev = $NavItems | Where-Object { $_.C -eq $curr.C -and $_.R -lt $curr.R } | Select-Object -Last 1
             if ($prev) { $SelIdx = $NavItems.IndexOf($prev) }
         }
+        87 {
+            # W = UP
+            $prev = $NavItems | Where-Object { $_.C -eq $curr.C -and $_.R -lt $curr.R } | Select-Object -Last 1
+            if ($prev) { $SelIdx = $NavItems.IndexOf($prev) }
+        }
         40 {
             # DOWN
             # Find next item in same column
+            $next = $NavItems | Where-Object { $_.C -eq $curr.C -and $_.R -gt $curr.R } | Select-Object -First 1
+            if ($next) { $SelIdx = $NavItems.IndexOf($next) }
+        }
+        83 {
+            # S = DOWN
             $next = $NavItems | Where-Object { $_.C -eq $curr.C -and $_.R -gt $curr.R } | Select-Object -First 1
             if ($next) { $SelIdx = $NavItems.IndexOf($next) }
         }
@@ -820,10 +848,24 @@ while ($true) {
                 if ($target) { $SelIdx = $NavItems.IndexOf($target) }
             }
         }
+        68 {
+            # D = RIGHT
+            if ($curr.C -eq 0) {
+                $target = $NavItems | Where-Object { $_.C -eq 1 } | Sort-Object { [Math]::Abs($_.R - $curr.R) } | Select-Object -First 1
+                if ($target) { $SelIdx = $NavItems.IndexOf($target) }
+            }
+        }
         37 {
             # LEFT
             if ($curr.C -eq 1) {
                 # Jump to Col 0, similar Row Y
+                $target = $NavItems | Where-Object { $_.C -eq 0 } | Sort-Object { [Math]::Abs($_.R - $curr.R) } | Select-Object -First 1
+                if ($target) { $SelIdx = $NavItems.IndexOf($target) }
+            }
+        }
+        65 {
+            # A = LEFT
+            if ($curr.C -eq 1) {
                 $target = $NavItems | Where-Object { $_.C -eq 0 } | Sort-Object { [Math]::Abs($_.R - $curr.R) } | Select-Object -First 1
                 if ($target) { $SelIdx = $NavItems.IndexOf($target) }
             }
