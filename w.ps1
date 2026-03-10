@@ -18,12 +18,12 @@ $DataRoot = "C:\\FreeMixKit"
 $DataTemp = Join-Path $DataRoot "temp"
 $DataLogs = Join-Path $DataRoot "logs"
 $DataDownloads = Join-Path $DataRoot "downloads"
-$SessionStamp = Get-Date -Format "yyyyMMdd_HHmmss"
-$SessionLogPath = Join-Path $DataLogs "FreeMixKit_Session_$SessionStamp.log"
+$SessionLogPath = Join-Path $DataLogs "FreeMixKit_Session.log"
 
 foreach ($p in @($DataRoot, $DataTemp, $DataLogs, $DataDownloads)) {
     if (-not (Test-Path $p)) { New-Item -ItemType Directory -Path $p | Out-Null }
 }
+$null = New-Item -ItemType File -Path $SessionLogPath -Force
 $dataItem = Get-Item $DataRoot -Force
 if (-not ($dataItem.Attributes -band [IO.FileAttributes]::Hidden)) {
     $dataItem.Attributes = $dataItem.Attributes -bor [IO.FileAttributes]::Hidden
