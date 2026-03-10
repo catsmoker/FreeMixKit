@@ -6,6 +6,8 @@
 
 FreeMixKit is a Windows PowerShell utility suite with a keyboard-driven grid menu for maintenance, software tools, developer setup, utilities, and activation helpers.
 
+<img width="1214" height="668" alt="Screenshot 2026-03-10 171357" src="https://github.com/user-attachments/assets/9bbc7abc-c302-4e53-a662-79033f4afcca" />
+
 ## What It Does
 
 `w.ps1` provides grouped modules such as:
