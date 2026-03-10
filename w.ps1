@@ -97,11 +97,29 @@ function Confirm-Action([string]$Prompt) {
 }
 
 function Ensure-WingetInstalled {
-    if (Get-Command winget -ErrorAction SilentlyContinue) { return }
-    Write-Log "Winget not found. Installing Winget..." "Warn"
-    $bundlePath = Join-Path $DataTemp "winget.msixbundle"
-    Invoke-WebRequest -Uri "https://aka.ms/getwinget" -OutFile $bundlePath
-    Add-AppxPackage -Path $bundlePath
+    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+        Write-Log "Winget not found. Installing Winget..." "Warn"
+        $bundlePath = Join-Path $DataTemp "winget.msixbundle"
+        Invoke-WebRequest -Uri "https://aka.ms/getwinget" -OutFile $bundlePath
+        Add-AppxPackage -Path $bundlePath
+    }
+
+    # Keep winget and its sources fresh
+    try {
+        Write-Log "Refreshing winget sources..." "Info"
+        winget source update --disable-interactivity | Out-Null
+    }
+    catch {
+        Write-Log "Winget source refresh failed: $($_.Exception.Message)" "Warn"
+    }
+
+    try {
+        Write-Log "Checking winget client updates..." "Info"
+        winget upgrade --id Microsoft.DesktopAppInstaller --exact --source winget --accept-source-agreements --accept-package-agreements --disable-interactivity | Out-Null
+    }
+    catch {
+        Write-Log "Winget client upgrade skipped/failed: $($_.Exception.Message)" "Warn"
+    }
 }
 
 function Test-WingetPackageInstalled([string]$Id) {
@@ -467,13 +485,6 @@ $Modules["AdobeGenP"] = {
 }
 $Modules["WingetUpgrade"] = {
     Ensure-WingetInstalled
-    try {
-        Write-Log "Updating winget sources..." "Info"
-        Invoke-ExternalCommand -FilePath "winget.exe" -Arguments @("source", "update") | Out-Null
-    }
-    catch {
-        Write-Log "Winget source update failed: $($_.Exception.Message)" "Warn"
-    }
     Invoke-ExternalCommand -FilePath "winget.exe" -Arguments @(
         "upgrade", "--all", "--include-unknown",
         "--accept-source-agreements", "--accept-package-agreements"
@@ -509,14 +520,6 @@ $Modules["Spicetify"] = {
         Ensure-WingetInstalled
 
         if (Get-Command winget -ErrorAction SilentlyContinue) {
-            try {
-                Write-Log "Updating winget sources..." "Info"
-                Invoke-ExternalCommand -FilePath "winget.exe" -Arguments @("source", "update") | Out-Null
-            }
-            catch {
-                Write-Log "Winget source update failed: $($_.Exception.Message)" "Warn"
-            }
-
             Write-Log "Installing Spotify using winget (standard user)..." "Info"
             $asUser.Invoke("WingetSpotify", @"
 winget install --id Spotify.Spotify --exact -s winget --scope user --accept-source-agreements --accept-package-agreements --disable-interactivity
