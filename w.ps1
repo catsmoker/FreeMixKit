@@ -359,26 +359,17 @@ $Modules["DevChoice"] = {
         }
     }
 
-    # 2b. Game-related runtimes
-    Write-Log "Installing DirectX End-User Runtimes (June 2010)..." "Info"
-    try {
-        $dxExe = Join-Path $DataDownloads "directx_Jun2010_redist.exe"
-        $dxExtract = Join-Path $DataTemp "DirectXRedist"
-        Invoke-WebRequest "https://download.microsoft.com/download/1/7/5/17509e00-bfb1-4b37-b3b0-9e7f174c538d/directx_Jun2010_redist.exe" -OutFile $dxExe -UseBasicParsing
-        Start-Process -FilePath $dxExe -ArgumentList "/Q /T:`"$dxExtract`"" -Wait -NoNewWindow
-        Start-Process -FilePath (Join-Path $dxExtract "DXSETUP.exe") -ArgumentList "/silent" -Wait -NoNewWindow
-        Write-Log "DirectX installed." "Success"
+    # 2b. Game-related runtimes via winget
+    $gamePackages = @("Microsoft.DirectX", "Microsoft.XNARedist")
+    foreach ($gid in $gamePackages) {
+        try {
+            Write-Log "Installing game runtime: $gid" "Info"
+            Install-WingetPackage -Id $gid
+        }
+        catch {
+            Write-Log "Failed game runtime '$gid': $($_.Exception.Message)" "Error"
+        }
     }
-    catch { Write-Log "DirectX install failed: $($_.Exception.Message)" "Error" }
-
-    Write-Log "Installing XNA Framework 4.0 Redistributable..." "Info"
-    try {
-        $xnaPath = Join-Path $DataDownloads "xnafx40_redist.msi"
-        Invoke-WebRequest "https://download.microsoft.com/download/1/8/8/1884D2C1-2C14-4C1D-83A2-19B0BC3707B9/xnafx40_redist.msi" -OutFile $xnaPath -UseBasicParsing
-        Start-Process "msiexec.exe" -ArgumentList "/i `"$xnaPath`" /quiet /norestart" -Wait -NoNewWindow
-        Write-Log "XNA Framework installed." "Success"
-    }
-    catch { Write-Log "XNA install failed: $($_.Exception.Message)" "Error" }
 
     Write-Log "Enabling .NET Framework 3.5 (Windows Feature)..." "Info"
     try {
@@ -476,6 +467,13 @@ $Modules["AdobeGenP"] = {
 }
 $Modules["WingetUpgrade"] = {
     Ensure-WingetInstalled
+    try {
+        Write-Log "Updating winget sources..." "Info"
+        Invoke-ExternalCommand -FilePath "winget.exe" -Arguments @("source", "update") | Out-Null
+    }
+    catch {
+        Write-Log "Winget source update failed: $($_.Exception.Message)" "Warn"
+    }
     Invoke-ExternalCommand -FilePath "winget.exe" -Arguments @(
         "upgrade", "--all", "--include-unknown",
         "--accept-source-agreements", "--accept-package-agreements"
@@ -508,7 +506,17 @@ $Modules["Spicetify"] = {
 
     if (-not (Test-Path $spotifyExe)) {
 
+        Ensure-WingetInstalled
+
         if (Get-Command winget -ErrorAction SilentlyContinue) {
+            try {
+                Write-Log "Updating winget sources..." "Info"
+                Invoke-ExternalCommand -FilePath "winget.exe" -Arguments @("source", "update") | Out-Null
+            }
+            catch {
+                Write-Log "Winget source update failed: $($_.Exception.Message)" "Warn"
+            }
+
             Write-Log "Installing Spotify using winget (standard user)..." "Info"
             $asUser.Invoke("WingetSpotify", @"
 winget install --id Spotify.Spotify --exact -s winget --scope user --accept-source-agreements --accept-package-agreements --disable-interactivity
