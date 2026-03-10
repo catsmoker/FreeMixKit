@@ -120,7 +120,7 @@ function Install-WingetPackage([string]$Id) {
     Invoke-ExternalCommand -FilePath "winget.exe" -Arguments @(
         "install", "--id", $Id, "--exact", "-s", "winget",
         "--accept-package-agreements", "--accept-source-agreements", "--disable-interactivity"
-    ) -TimeoutSec 1800 | Out-Null
+    ) | Out-Null
 }
 
 function Test-NetworkConnectivity {
@@ -132,19 +132,34 @@ function Test-NetworkConnectivity {
     }
 }
 
+function Get-SpotifyExecutablePath {
+    $candidates = @(
+        "$env:APPDATA\\Spotify\\Spotify.exe",
+        "$env:LOCALAPPDATA\\Microsoft\\WindowsApps\\Spotify.exe"
+    )
+
+    $msixRoot = Join-Path $env:LOCALAPPDATA "Microsoft\\WindowsApps"
+    if (Test-Path $msixRoot) {
+        $msixSpotify = Get-ChildItem -Path $msixRoot -Filter "Spotify*.exe" -Recurse -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match "spotify" } |
+            Select-Object -First 1
+        if ($msixSpotify) { $candidates += $msixSpotify.FullName }
+    }
+
+    foreach ($p in $candidates | Select-Object -Unique) {
+        if (Test-Path $p) { return $p }
+    }
+    return $null
+}
+
 function Invoke-ExternalCommand {
     param(
         [Parameter(Mandatory = $true)][string]$FilePath,
-        [Parameter()][string[]]$Arguments = @(),
-        [Parameter()][int]$TimeoutSec = 1800
+        [Parameter()][string[]]$Arguments = @()
     )
 
     $proc = Start-Process -FilePath $FilePath -ArgumentList $Arguments -PassThru -NoNewWindow
-    $finished = Wait-Process -Id $proc.Id -Timeout $TimeoutSec -ErrorAction SilentlyContinue
-    if (-not $finished) {
-        Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
-        throw "Command timed out after $TimeoutSec sec: $FilePath $($Arguments -join ' ')"
-    }
+    Wait-Process -Id $proc.Id -ErrorAction SilentlyContinue
 
     if ($proc.ExitCode -ne 0) {
         throw "Command failed (exit $($proc.ExitCode)): $FilePath $($Arguments -join ' ')"
@@ -154,28 +169,6 @@ function Invoke-ExternalCommand {
         FilePath = $FilePath
         Arguments = ($Arguments -join " ")
         ExitCode = $proc.ExitCode
-    }
-}
-
-function Invoke-WithRetry {
-    param(
-        [Parameter(Mandatory = $true)][scriptblock]$Operation,
-        [Parameter()][int]$MaxAttempts = 1,
-        [Parameter()][int]$DelaySec = 2,
-        [Parameter()][string]$OperationName = "Operation"
-    )
-
-    $attempt = 1
-    while ($attempt -le $MaxAttempts) {
-        try {
-            return & $Operation
-        }
-        catch {
-            if ($attempt -ge $MaxAttempts) { throw }
-            Write-Log "$OperationName failed on attempt $attempt/$MaxAttempts. Retrying in $DelaySec sec. Error: $($_.Exception.Message)" "Warn"
-            Start-Sleep -Seconds $DelaySec
-            $attempt++
-        }
     }
 }
 
@@ -194,8 +187,6 @@ function Invoke-ModuleAction([string]$ActionKey) {
     $label = Get-ModuleMetaValue -ActionKey $ActionKey -Name "Label" -DefaultValue $ActionKey
     $requiresNetwork = [bool](Get-ModuleMetaValue -ActionKey $ActionKey -Name "RequiresNetwork" -DefaultValue $false)
     $confirmMessage = Get-ModuleMetaValue -ActionKey $ActionKey -Name "ConfirmMessage" -DefaultValue $null
-    $timeoutSec = [int](Get-ModuleMetaValue -ActionKey $ActionKey -Name "TimeoutSec" -DefaultValue 1800)
-    $retryCount = [int](Get-ModuleMetaValue -ActionKey $ActionKey -Name "RetryCount" -DefaultValue 1)
     $verifyBlock = Get-ModuleMetaValue -ActionKey $ActionKey -Name "Verify" -DefaultValue $null
     $rollbackHint = Get-ModuleMetaValue -ActionKey $ActionKey -Name "RollbackHint" -DefaultValue ""
 
@@ -222,14 +213,9 @@ function Invoke-ModuleAction([string]$ActionKey) {
     $global:LASTEXITCODE = 0
 
     try {
-        Invoke-WithRetry -MaxAttempts $retryCount -DelaySec 3 -OperationName $label -Operation {
-            & $Modules[$ActionKey]
-        } | Out-Null
+        & $Modules[$ActionKey] | Out-Null
 
         $duration = (Get-Date) - $start
-        if ($duration.TotalSeconds -gt $timeoutSec) {
-            throw "Module exceeded timeout budget (${timeoutSec}s): $label"
-        }
 
         $effectiveExitCode = if (Test-Path variable:global:LASTEXITCODE) { $global:LASTEXITCODE } else { 0 }
         if ($effectiveExitCode -ne 0) {
@@ -290,8 +276,6 @@ function Register-Module(
         Risk        = $Risk
         RequiresNetwork = $false
         ConfirmMessage  = $null
-        TimeoutSec      = 1800
-        RetryCount      = 1
         Verify          = $null
         RollbackHint    = ""
     }
@@ -362,7 +346,7 @@ $Modules["DevChoice"] = {
 
     $packages = @(
         # prefer latest stable IDs that resolve on winget today
-        "Microsoft.DotNet.SDK.10", "Microsoft.DotNet.Runtime.10", "OpenJS.NodeJS.LTS", "Python.Python.3.12", "EclipseAdoptium.Temurin.25.JDK",
+        "Microsoft.DotNet.SDK.10", "Microsoft.DotNet.Runtime.9", "Microsoft.DotNet.Runtime.8", "OpenJS.NodeJS.LTS", "Python.Python.3.14", "EclipseAdoptium.Temurin.25.JDK",
         "Microsoft.PowerShell", "Git.Git", "Gyan.FFmpeg", "M2Team.NanaZip", "Notepad++.Notepad++", "AdrienAllard.FileConverter"
     ) + ($vcRedists | Where-Object { $_ -and $_.Id } | ForEach-Object { $_.Id } | Sort-Object -Unique)
 
@@ -434,8 +418,8 @@ $Modules["CleanSystem"] = {
     Write-Log "Cleaned." "Success"
 }
 $Modules["SystemRepair"] = {
-    Invoke-ExternalCommand -FilePath "sfc.exe" -Arguments @("/scannow") -TimeoutSec 7200 | Out-Null
-    Invoke-ExternalCommand -FilePath "DISM.exe" -Arguments @("/Online", "/Cleanup-Image", "/RestoreHealth") -TimeoutSec 7200 | Out-Null
+    Invoke-ExternalCommand -FilePath "sfc.exe" -Arguments @("/scannow") | Out-Null
+    Invoke-ExternalCommand -FilePath "DISM.exe" -Arguments @("/Online", "/Cleanup-Image", "/RestoreHealth") | Out-Null
     Write-Log "Done." "Success"
 }
 $Modules["MalwareScan"] = { 
@@ -468,7 +452,7 @@ $Modules["WingetUpgrade"] = {
     Invoke-ExternalCommand -FilePath "winget.exe" -Arguments @(
         "upgrade", "--all", "--include-unknown",
         "--accept-source-agreements", "--accept-package-agreements"
-    ) -TimeoutSec 7200 | Out-Null
+    ) | Out-Null
 }
 $Modules["Spicetify"] = {
     # ===============================
@@ -477,36 +461,77 @@ $Modules["Spicetify"] = {
 
     Write-Log "Checking Spotify installation..." "Info"
 
-    $spotifyExe = "$env:APPDATA\Spotify\Spotify.exe"
+    $spotifyExe = Get-SpotifyExecutablePath
+    $currentUser = $env:USERNAME
+    $asUser = {
+        param([string]$Title, [string]$ScriptText)
+        $runScript = Join-Path $DataTemp "RunAsUser_$Title.ps1"
+        Set-Content -Path $runScript -Value $ScriptText -Force
+
+        $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$runScript`""
+        $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddSeconds(2)
+        $principal = New-ScheduledTaskPrincipal -UserId $currentUser -LogonType Interactive -RunLevel Limited
+
+        Unregister-ScheduledTask -TaskName $Title -Confirm:$false -ErrorAction SilentlyContinue
+        Register-ScheduledTask -TaskName $Title -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
+        Start-ScheduledTask -TaskName $Title
+        Start-Sleep -Seconds 10
+        Unregister-ScheduledTask -TaskName $Title -Confirm:$false -ErrorAction SilentlyContinue
+    }
 
     if (-not (Test-Path $spotifyExe)) {
 
         if (Get-Command winget -ErrorAction SilentlyContinue) {
-            Write-Log "Installing Spotify using winget..." "Info"
-            Install-WingetPackage -Id "Spotify.Spotify"
+            Write-Log "Installing Spotify using winget (standard user)..." "Info"
+            $asUser.Invoke("WingetSpotify", @"
+winget install --id Spotify.Spotify --exact -s winget --scope user --accept-source-agreements --accept-package-agreements --disable-interactivity
+"@)
         }
         else {
-            Write-Log "Winget not found. Using direct installer..." "Info"
+            Write-Log "Winget not found. Using direct installer (standard user)..." "Info"
 
             $spotifyInstaller = "$DataDownloads\\SpotifySetup.exe"
             Invoke-WebRequest "https://download.scdn.co/SpotifySetup.exe" -OutFile $spotifyInstaller
 
-            Start-Process $spotifyInstaller -ArgumentList "/silent" -Wait
+            $asUser.Invoke("DirectSpotify", @"
+Start-Process '$spotifyInstaller' -ArgumentList '/silent' -Wait
+"@)
         }
 
         # Wait until Spotify exists
-        for ($i = 0; $i -lt 15; $i++) {
-            if (Test-Path $spotifyExe) { break }
+        for ($i = 0; $i -lt 20; $i++) {
+            $spotifyExe = Get-SpotifyExecutablePath
+            if ($spotifyExe) { break }
             Start-Sleep 2
         }
 
-        if (-not (Test-Path $spotifyExe)) {
-            Write-Log "Spotify installation failed or timed out." "Error"
-            return
+        if (-not $spotifyExe) {
+            throw "Spotify installation failed or timed out."
         }
     }
     else {
         Write-Log "Spotify already installed." "Info"
+    }
+
+    Write-Log "Spotify detected at: $spotifyExe" "Success"
+
+    # Run Spotify once so it initializes user data before Spicetify patches it
+    Write-Log "Launching Spotify once to initialize (30s countdown)..." "Info"
+    try {
+        $proc = Start-Process -FilePath $spotifyExe -PassThru -WindowStyle Hidden
+        for ($sec = 30; $sec -ge 1; $sec--) {
+            $percent = [int](100 * (30 - $sec) / 30)
+            Write-Progress -Activity "Spotify first-launch warmup" -Status "Waiting $sec s..." -PercentComplete $percent
+            if ($proc.HasExited) { break }
+            Start-Sleep -Seconds 1
+        }
+        Write-Progress -Activity "Spotify first-launch warmup" -Completed
+        if ($proc -and -not $proc.HasExited) {
+            Stop-Process -Id $proc.Id -ErrorAction SilentlyContinue
+        }
+    }
+    catch {
+        Write-Log "Could not auto-launch/close Spotify: $($_.Exception.Message)" "Warn"
     }
 
     # ===============================
@@ -578,8 +603,9 @@ $Modules["IAS"] = { Invoke-RestMethod https://coporton.com/ias | Invoke-Expressi
 
 # --- UTILS ---
 $Modules["WinUtil"] = { Invoke-RestMethod https://christitus.com/win | Invoke-Expression }
-$Modules["RegistryBackup"] = { Start-Process reg.exe -Arg "export HKLM `"$env:USERPROFILE\Desktop\Backup.reg`" /y" -Wait }
 $Modules["FixResolution"] = { Invoke-WebRequest "https://www.monitortests.com/download/cru/cru-1.5.3.zip" -OutFile "$DataDownloads\\cru.zip"; Expand-Archive "$DataDownloads\\cru.zip" "$DataTemp\\CRU" -Force; Start-Process "$DataTemp\\CRU\\CRU.exe" -Wait; Start-Process "$DataTemp\\CRU\\restart64.exe" -Wait }
+$Modules["OpenGitHub"] = { Start-Process "https://github.com/catsmoker/FreeMixKit" }
+$Modules["OpenWebsite"] = { Start-Process "https://catsmoker.vercel.app/" }
 
 $Modules["AddShortcut"] = {
     $iconUrl = "https://raw.githubusercontent.com/catsmoker/FreeMixKit/refs/heads/main/freemixkit_icon.ico"
@@ -613,49 +639,37 @@ $Modules["AddShortcut"] = {
 # Register metadata for modules (single source of truth for labels/descriptions/risk)
 Register-Module "DevChoice" "DEV CHOICE (Full)" "Installs: VS Redists, .NET, Node.js, Python, Java, PowerShell, Git, FFmpeg, 7zip, Notepad++, File Converter, Bibata Cursor." $Modules["DevChoice"] "Medium" @{
     RequiresNetwork = $true
-    RetryCount = 3
-    TimeoutSec = 7200
 }
 Register-Module "CleanSystem" "Clean System Junk" "Removes temp files, prefetch, and clears DNS cache." $Modules["CleanSystem"] "Low"
 Register-Module "SystemRepair" "System Repair" "Runs SFC Scannow and DISM RestoreHealth." $Modules["SystemRepair"] "Low" @{
-    TimeoutSec = 14400
 }
 Register-Module "MalwareScan" "Malware Scan" "Runs MRT, then downloads and runs Kaspersky Virus Removal Tool (KVRT)." $Modules["MalwareScan"] "Low" @{
     RequiresNetwork = $true
-    RetryCount = 3
-    TimeoutSec = 7200
 }
 Register-Module "SystemReport" "System Report" "Generates a text file with system specs on your desktop." $Modules["SystemReport"] "Low"
 Register-Module "MAS" "MAS" "Runs MAS (Microsoft Activation Scripts) to activate Windows." $Modules["MAS"] "High"
 Register-Module "IAS" "IAS" "Activates Internet Download Manager (IDM)." $Modules["IAS"] "High"
 Register-Module "AdobeGenP" "Adobe GenP" "Downloads Creative Cloud and GenP activator." $Modules["AdobeGenP"] "High" @{
     RequiresNetwork = $true
-    RetryCount = 3
 }
 Register-Module "WingetUpgrade" "Winget Upgrade" "Upgrades all installed software via Winget." $Modules["WingetUpgrade"] "Low" @{
     RequiresNetwork = $true
-    RetryCount = 3
-    TimeoutSec = 7200
     Verify = { [bool](Get-Command winget -ErrorAction SilentlyContinue) }
 }
 Register-Module "Spicetify" "Spicetify" "Installs Spicetify for Spotify customization/ad-blocking." $Modules["Spicetify"] "Medium" @{
     RequiresNetwork = $true
-    RetryCount = 3
-    TimeoutSec = 3600
 }
 Register-Module "Legcord" "Legcord" "Installs Legcord (BetterDiscord alternative)." $Modules["Legcord"] "Low" @{
     RequiresNetwork = $true
-    RetryCount = 3
 }
 Register-Module "WinUtil" "WinUtil" "Launches Chris Titus Tech's Windows Utility." $Modules["WinUtil"] "Medium" @{
     RequiresNetwork = $true
-    RetryCount = 3
 }
-Register-Module "RegistryBackup" "Registry Backup" "Backs up the HKLM registry hive to Desktop." $Modules["RegistryBackup"] "Low"
 Register-Module "FixResolution" "Fix Resolution" "Uses CRU to restart graphics driver and fix resolution." $Modules["FixResolution"] "Medium" @{
     RequiresNetwork = $true
-    RetryCount = 3
 }
+Register-Module "OpenGitHub" "GitHub Repository" "Opens the FreeMixKit GitHub page in your browser." $Modules["OpenGitHub"] "Low"
+Register-Module "OpenWebsite" "Website" "Opens the author's website in your browser." $Modules["OpenWebsite"] "Low"
 Register-Module "AddShortcut" "Add Shortcut" "Creates a shortcut for this script on the Desktop." $Modules["AddShortcut"] "Low"
 
 # ==============================================================================
@@ -687,8 +701,11 @@ $Col2 = @(
     @{T = "H"; L = "" }
     @{T = "H"; L = "[ UTILITIES ]" }
     @{T = "I"; L = "WinUtil"; A = "WinUtil"; D = "Launches Chris Titus Tech's Windows Utility." }
-    @{T = "I"; L = "Registry Backup"; A = "RegistryBackup"; D = "Backs up the HKLM registry hive to Desktop." }
     @{T = "I"; L = "Fix Resolution"; A = "FixResolution"; D = "Uses CRU to restart graphics driver and fix resolution." }
+    @{T = "H"; L = "" }
+    @{T = "H"; L = "[ LINKS ]" }
+    @{T = "I"; L = "GitHub Repository"; A = "OpenGitHub"; D = "Open the FreeMixKit GitHub page." }
+    @{T = "I"; L = "Website"; A = "OpenWebsite"; D = "Open catsmoker's website." }
     @{T = "H"; L = "" }
     @{T = "H"; L = "[ EXIT ]" }
     @{T = "I"; L = "Add Shortcut"; A = "AddShortcut"; D = "Creates a shortcut for this script on the Desktop." }
