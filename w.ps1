@@ -166,35 +166,6 @@ function Get-ModuleMetaValue([string]$ActionKey, [string]$Name, $DefaultValue) {
     return $DefaultValue
 }
 
-function Test-DnsServersMatch([string[]]$ExpectedServers) {
-    $expected = $ExpectedServers | Sort-Object -Unique
-    $upAdapters = Get-NetAdapter | Where-Object Status -eq Up
-    if (-not $upAdapters) { return $false }
-
-    foreach ($adapter in $upAdapters) {
-        $dns = (Get-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4).ServerAddresses
-        $actual = $dns | Sort-Object -Unique
-        $sameCount = @($actual).Count -eq @($expected).Count
-        $sameItems = -not (Compare-Object -ReferenceObject $expected -DifferenceObject $actual)
-        if (-not ($sameCount -and $sameItems)) { return $false }
-    }
-    return $true
-}
-
-function Test-TelemetryValue([int]$ExpectedValue) {
-    $paths = @(
-        "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection",
-        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection"
-    )
-
-    foreach ($path in $paths) {
-        if (-not (Test-Path $path)) { return $false }
-        $value = (Get-ItemProperty -Path $path -Name "AllowTelemetry" -ErrorAction SilentlyContinue).AllowTelemetry
-        if ($value -ne $ExpectedValue) { return $false }
-    }
-    return $true
-}
-
 function Invoke-ModuleAction([string]$ActionKey) {
     if (-not $Modules.Contains($ActionKey)) {
         throw "Unknown action '$ActionKey'."
@@ -325,7 +296,7 @@ function Add-ModuleResult([string]$Module, [string]$Status, [string]$Message, [t
 
 function Export-SessionResults {
     $stamp = Get-Date -Format "yyyyMMdd_HHmmss"
-    $resultsPath = Join-Path $env:USERPROFILE "Desktop\FreeMixKit_ModuleResults_$stamp.csv"
+    $resultsPath = Join-Path $env:TEMP "FreeMixKit_ModuleResults_$stamp.csv"
 
     if ($ModuleResults.Count -gt 0) {
         $ModuleResults | Export-Csv -Path $resultsPath -NoTypeInformation -Encoding UTF8
@@ -348,7 +319,7 @@ function Export-SessionResults {
 
 try {
     $stamp = Get-Date -Format "yyyyMMdd_HHmmss"
-    $Script:TranscriptPath = Join-Path $env:USERPROFILE "Desktop\FreeMixKit_Session_$stamp.log"
+    $Script:TranscriptPath = Join-Path $env:TEMP "FreeMixKit_Session_$stamp.log"
     Start-Transcript -Path $Script:TranscriptPath -ErrorAction Stop | Out-Null
     Write-Log "Session transcript started: $Script:TranscriptPath" "Info"
 }
@@ -432,25 +403,15 @@ $Modules["SystemRepair"] = {
 }
 $Modules["MalwareScan"] = { 
     $mrt = "$env:SystemRoot\System32\MRT.exe"
-    if (!(Test-Path $mrt)) { Invoke-WebRequest "https://go.microsoft.com/fwlink/?LinkID=212732" -OutFile "$env:TEMP\MRT.exe"; $mrt = "$env:TEMP\MRT.exe" }
-    Start-Process $mrt -Wait 
-}
-$Modules["MalwareScanAdv"] = {
-    Write-Host "WARNING: DOWNLOADING 400MB+ (Tron Script)" -Bx Red -Fx White
-    try {
-        $l = (Invoke-WebRequest "https://bmrf.org/repos/tron/" -UseBasicParsing).Links.href | Where-Object { $_ -match "Tron v.+?\.exe" } | Select-Object -First 1
-        if ($l) {
-            Invoke-WebRequest "https://bmrf.org/repos/tron/$l" -OutFile "$env:TEMP\$l"
-            Start-Process "$env:TEMP\$l" -Wait
-        }
-        else {
-            throw "Unable to discover Tron executable link."
-        }
+    if (!(Test-Path $mrt)) {
+        Invoke-WebRequest "https://go.microsoft.com/fwlink/?LinkID=212732" -OutFile "$env:TEMP\MRT.exe"
+        $mrt = "$env:TEMP\MRT.exe"
     }
-    catch {
-        Write-Log "Error fetching Tron: $($_.Exception.Message)" "Error"
-        throw
-    }
+    Start-Process $mrt -Wait
+
+    $kvrt = Join-Path $env:TEMP "kvrt.exe"
+    Invoke-WebRequest "https://devbuilds.s.kaspersky-labs.com/kvrt/latest/full/kvrt.exe" -OutFile $kvrt
+    Start-Process $kvrt -Wait
 }
 $Modules["SystemReport"] = { 
     $f = "$env:USERPROFILE\Desktop\SysReport.txt"
@@ -622,11 +583,9 @@ Register-Module "CleanSystem" "Clean System Junk" "Removes temp files, prefetch,
 Register-Module "SystemRepair" "System Repair" "Runs SFC Scannow and DISM RestoreHealth." $Modules["SystemRepair"] "Low" @{
     TimeoutSec = 14400
 }
-Register-Module "MalwareScan" "Malware Scan" "Runs the built-in Microsoft Malicious Software Removal Tool." $Modules["MalwareScan"] "Low"
-Register-Module "MalwareScanAdv" "Malware Scan Adv" "Downloads and runs Tron Script (Heavy/Advanced deep clean)." $Modules["MalwareScanAdv"] "Medium" @{
+Register-Module "MalwareScan" "Malware Scan" "Runs MRT, then downloads and runs Kaspersky Virus Removal Tool (KVRT)." $Modules["MalwareScan"] "Low" @{
     RequiresNetwork = $true
     RetryCount = 3
-    ConfirmMessage = "This downloads a large advanced cleaner package. Continue?"
     TimeoutSec = 7200
 }
 Register-Module "SystemReport" "System Report" "Generates a text file with system specs on your desktop." $Modules["SystemReport"] "Low"
@@ -674,8 +633,7 @@ $Col1 = @(
     @{T = "H"; L = "[ MAINTENANCE ]" }
     @{T = "I"; L = "Clean System Junk"; A = "CleanSystem"; D = "Removes temp files, prefetch, and clears DNS cache." }
     @{T = "I"; L = "System Repair"; A = "SystemRepair"; D = "Runs SFC Scannow and DISM RestoreHealth." }
-    @{T = "I"; L = "Malware Scan"; A = "MalwareScan"; D = "Runs the built-in Microsoft Malicious Software Removal Tool." }
-    @{T = "I"; L = "Malware Scan Adv"; A = "MalwareScanAdv"; D = "Downloads and runs Tron Script (Heavy/Advanced deep clean)." }
+    @{T = "I"; L = "Malware Scan"; A = "MalwareScan"; D = "Runs MRT, then downloads and runs Kaspersky Virus Removal Tool (KVRT)." }
     @{T = "I"; L = "System Report"; A = "SystemReport"; D = "Generates a text file with system specs on your desktop." }
     @{T = "H"; L = "" }
     @{T = "H"; L = "[ ACTIVATION ]" }
@@ -731,8 +689,6 @@ $SelIdx = 0 # Index in $NavItems
 $NumberInput = ""
 $LastActionLabel = "None"
 $LastActionStatus = "N/A"
-$LastActionDuration = "0.00s"
-$LastActionAt = "-"
 $LastActionMessage = "No action run yet."
 
 # ==============================================================================
@@ -931,8 +887,6 @@ while ($true) {
 
                 $LastActionLabel = $curr.L
                 $LastActionStatus = $status
-                $LastActionDuration = "{0:N2}s" -f $duration.TotalSeconds
-                $LastActionAt = (Get-Date).ToString("HH:mm:ss")
                 $LastActionMessage = $message
             }
             
