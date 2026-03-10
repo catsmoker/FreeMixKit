@@ -359,6 +359,33 @@ $Modules["DevChoice"] = {
         }
     }
 
+    # 2b. Game-related runtimes
+    Write-Log "Installing DirectX End-User Runtimes (June 2010)..." "Info"
+    try {
+        $dxExe = Join-Path $DataDownloads "directx_Jun2010_redist.exe"
+        $dxExtract = Join-Path $DataTemp "DirectXRedist"
+        Invoke-WebRequest "https://download.microsoft.com/download/1/7/5/17509e00-bfb1-4b37-b3b0-9e7f174c538d/directx_Jun2010_redist.exe" -OutFile $dxExe -UseBasicParsing
+        Start-Process -FilePath $dxExe -ArgumentList "/Q /T:`"$dxExtract`"" -Wait -NoNewWindow
+        Start-Process -FilePath (Join-Path $dxExtract "DXSETUP.exe") -ArgumentList "/silent" -Wait -NoNewWindow
+        Write-Log "DirectX installed." "Success"
+    }
+    catch { Write-Log "DirectX install failed: $($_.Exception.Message)" "Error" }
+
+    Write-Log "Installing XNA Framework 4.0 Redistributable..." "Info"
+    try {
+        $xnaPath = Join-Path $DataDownloads "xnafx40_redist.msi"
+        Invoke-WebRequest "https://download.microsoft.com/download/1/8/8/1884D2C1-2C14-4C1D-83A2-19B0BC3707B9/xnafx40_redist.msi" -OutFile $xnaPath -UseBasicParsing
+        Start-Process "msiexec.exe" -ArgumentList "/i `"$xnaPath`" /quiet /norestart" -Wait -NoNewWindow
+        Write-Log "XNA Framework installed." "Success"
+    }
+    catch { Write-Log "XNA install failed: $($_.Exception.Message)" "Error" }
+
+    Write-Log "Enabling .NET Framework 3.5 (Windows Feature)..." "Info"
+    try {
+        Start-Process "dism.exe" -ArgumentList "/Online /Enable-Feature /FeatureName:NetFx3 /All /NoRestart" -Wait -NoNewWindow
+    }
+    catch { Write-Log ".NET 3.5 enable failed: $($_.Exception.Message)" "Warn" }
+
     # 3. Notepad Fix
     Write-Log "Replacing Windows Notepad with Notepad++..." "Info"
     $nppPath = "C:\\Program Files\\Notepad++\\notepad++.exe"
