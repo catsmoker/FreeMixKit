@@ -4,22 +4,22 @@
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue)
 [![GitHub stars](https://img.shields.io/github/stars/catsmoker/FreeMixKit?style=social)](https://github.com/catsmoker/FreeMixKit/stargazers)
 
-FreeMixKit is a Windows PowerShell utility suite with a keyboard-driven grid menu for maintenance, networking, developer setup, and system tweaks.
+FreeMixKit is a Windows PowerShell utility suite with a keyboard-driven grid menu for maintenance, software tools, developer setup, utilities, and activation helpers.
 
 ## What It Does
 
 `w.ps1` provides grouped modules such as:
 
 - `Developer`: full dev environment setup (runtime and tool installs via Winget)
-- `Maintenance`: cleanup, system repair (SFC/DISM), malware scan, system report
-- `Tweaks`: DNS profiles, network reset, telemetry and service toggles, registry optimization
-- `Utilities`: registry backup, shortcut creation, resolution helper, external utility launchers
+- `Maintenance`: cleanup, system repair (SFC/DISM), malware scan (MRT + KVRT), system report
+- `Software`: Adobe GenP, Winget Upgrade, Spicetify, Legcord
+- `Utilities`: registry backup, shortcut creation, resolution helper, WinUtil launcher
 - `Activation / third-party patching`: includes modules that execute external activation scripts
 
 ## Important Safety Notes
 
 - Run only if you understand each module you execute.
-- Several modules make system-level changes (services, Defender state, registry, DNS, Winsock).
+- Several modules make system-level changes or run third-party tools.
 - Some modules download and run remote scripts/tools. Review `w.ps1` before use.
 - Activation-related modules may violate software terms or laws depending on your jurisdiction.
 
@@ -58,6 +58,8 @@ Inside the UI:
 
 - `Up/Down`: move within a column
 - `Left/Right`: switch columns
+- `Type number` + `Enter`: run a module directly
+- `Backspace`: clear typed number
 - `Enter`: run selected module
 - `Q` or `Esc`: exit
 
@@ -65,7 +67,11 @@ Inside the UI:
 
 On exit, session results are exported to:
 
-- `%USERPROFILE%\Desktop\FreeMixKit_ModuleResults_<timestamp>.csv`
+- `%TEMP%\FreeMixKit_ModuleResults_<timestamp>.csv`
+
+Session transcript logs are written to:
+
+- `%TEMP%\FreeMixKit_Session_<timestamp>.log`
 
 This includes module name, status, duration, message, and rollback hints (if available).
 
