@@ -459,20 +459,20 @@ $Modules["SystemReport"] = {
 }
 
 # --- APPS ---
-$Modules["AdobeFree"] = {
+$Modules["AdobeGenP"] = {
     Write-Log "Opening Creative Cloud..."
     Start-Process "https://www.adobe.com/download/creative-cloud"
     Write-Log "Opening GenP..."
     Start-Process "https://gen.paramore.su"
 }
-$Modules["SoftwareUpdate"] = {
+$Modules["WingetUpgrade"] = {
     Ensure-WingetInstalled
     Invoke-ExternalCommand -FilePath "winget.exe" -Arguments @(
         "upgrade", "--all", "--include-unknown",
         "--accept-source-agreements", "--accept-package-agreements"
     ) -TimeoutSec 7200 | Out-Null
 }
-$Modules["SpotifyPro"] = {
+$Modules["Spicetify"] = {
     # ===============================
     # Spotify → Spicetify Installer
     # ===============================
@@ -563,7 +563,7 @@ Read-Host
 
 }
 
-$Modules["DiscordPro"] = {
+$Modules["Legcord"] = {
     try { 
         $u = ((Invoke-RestMethod "https://api.github.com/repos/Legcord/Legcord/releases/latest").assets | Where-Object name -match ".exe" | Select-Object -First 1).browser_download_url
         Invoke-WebRequest $u -OutFile "$env:TEMP\legcord.exe"; Start-Process "$env:TEMP\legcord.exe" -Wait
@@ -575,108 +575,13 @@ $Modules["DiscordPro"] = {
 }
 
 # --- ACTIVATION ---
-$Modules["ActivateWindows"] = { Invoke-RestMethod https://get.activated.win | Invoke-Expression }
-$Modules["ActivateIDM"] = { Invoke-RestMethod https://coporton.com/ias | Invoke-Expression }
-
-# --- TWEAKS & NETWORK ---
-$Modules["ToggleUpdates"] = {
-    try {
-        $svc = Get-Service wuauserv
-        $isDisabled = $svc.StartType -eq "Disabled"
-        $target = if ($isDisabled) { "Enable (Manual)" } else { "Disable" }
-        $Script:ModuleExecutionContext["PreviousState"] = "StartupType=$($svc.StartType), Status=$($svc.Status)"
-        $Script:ModuleExecutionContext["TargetStartupType"] = if ($isDisabled) { "Manual" } else { "Disabled" }
-        Write-Log "Current Windows Update StartupType: $($svc.StartType)" "Info"
-
-        if ($isDisabled) {
-            Set-Service wuauserv -StartupType Manual
-            Start-Service wuauserv -ErrorAction SilentlyContinue
-        }
-        else {
-            Stop-Service wuauserv -Force
-            Set-Service wuauserv -StartupType Disabled
-        }
-        Write-Log "Windows Update changed. Rollback: run 'Toggle Updates' again." "Success"
-    }
-    catch {
-        Write-Log "Toggle Updates failed: $($_.Exception.Message)" "Error"
-        throw
-    }
-}
-$Modules["ToggleDefender"] = {
-    try {
-        $p = Get-MpPreference
-        $currentDisabled = [bool]$p.DisableRealtimeMonitoring
-        $targetDisabled = -not $currentDisabled
-        $targetLabel = if ($targetDisabled) { "Disabled" } else { "Enabled" }
-        $Script:ModuleExecutionContext["PreviousState"] = "DisableRealtimeMonitoring=$currentDisabled"
-        $Script:ModuleExecutionContext["TargetDefenderDisabled"] = $targetDisabled
-        Write-Log "Current Defender real-time monitoring: $(if ($currentDisabled) { "Disabled" } else { "Enabled" })" "Info"
-
-        Set-MpPreference -DisableRealtimeMonitoring $targetDisabled
-        Write-Log "Defender real-time monitoring set to $targetLabel. Rollback: run 'Toggle Defender' again." "Success"
-    }
-    catch {
-        Write-Log "Toggle Defender failed: $($_.Exception.Message)" "Error"
-        throw
-    }
-}
-$Modules["DisableTelemetry"] = {
-    $paths = @(
-        "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection",
-        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection"
-    )
-
-    try {
-        $values = foreach ($path in $paths) {
-            if (Test-Path $path) {
-                (Get-ItemProperty -Path $path -Name "AllowTelemetry" -ErrorAction SilentlyContinue).AllowTelemetry
-            }
-            else {
-                $null
-            }
-        }
-
-        $currentlyDisabled = ($values | Where-Object { $_ -ne $null -and $_ -ne 0 }).Count -eq 0
-        $targetValue = if ($currentlyDisabled) { 1 } else { 0 }
-        $targetLabel = if ($targetValue -eq 0) { "Disabled (0)" } else { "Enabled (1)" }
-        $Script:ModuleExecutionContext["PreviousState"] = "AllowTelemetryValues=$($values -join ',')"
-        $Script:ModuleExecutionContext["TargetTelemetryValue"] = $targetValue
-        Write-Log "Current telemetry policy: $(if ($currentlyDisabled) { "Disabled" } else { "Enabled/Partial" })" "Info"
-
-        foreach ($path in $paths) {
-            New-Item -Path $path -Force -EA SilentlyContinue | Out-Null
-            Set-ItemProperty -Path $path -Name "AllowTelemetry" -Value $targetValue -Force
-        }
-        Write-Log "Telemetry policy updated. Rollback: run 'Disable Telemetry' again." "Success"
-    }
-    catch {
-        Write-Log "Telemetry policy change failed: $($_.Exception.Message)" "Error"
-        throw
-    }
-}
-$Modules["RegistryOptimize"] = { Set-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" "NtfsDisableLastAccessUpdate" 1; Set-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" "SystemResponsiveness" 0 }
-$Modules["SetGoogleDNS"] = { Get-NetAdapter | Where-Object Status -eq Up | Set-DnsClientServerAddress -ServerAddresses "8.8.8.8", "8.8.4.4" }
-$Modules["SetCloudflareDNS"] = { Get-NetAdapter | Where-Object Status -eq Up | Set-DnsClientServerAddress -ServerAddresses "1.1.1.1", "1.0.0.1" }
-$Modules["ResetNetwork"] = {
-    Get-NetAdapter | Where-Object Status -eq Up | Set-DnsClientServerAddress -ResetServerAddresses
-    Invoke-ExternalCommand -FilePath "ipconfig.exe" -Arguments @("/flushdns") -TimeoutSec 120 | Out-Null
-    Invoke-ExternalCommand -FilePath "netsh.exe" -Arguments @("winsock", "reset") -TimeoutSec 120 | Out-Null
-}
+$Modules["MAS"] = { Invoke-RestMethod https://get.activated.win | Invoke-Expression }
+$Modules["IAS"] = { Invoke-RestMethod https://coporton.com/ias | Invoke-Expression }
 
 # --- UTILS ---
-$Modules["CTTUtility"] = { Invoke-RestMethod https://christitus.com/win | Invoke-Expression }
+$Modules["WinUtil"] = { Invoke-RestMethod https://christitus.com/win | Invoke-Expression }
 $Modules["RegistryBackup"] = { Start-Process reg.exe -Arg "export HKLM `"$env:USERPROFILE\Desktop\Backup.reg`" /y" -Wait }
 $Modules["FixResolution"] = { Invoke-WebRequest "https://www.monitortests.com/download/cru/cru-1.5.3.zip" -OutFile "$env:TEMP\cru.zip"; Expand-Archive "$env:TEMP\cru.zip" "$env:TEMP\CRU" -Force; Start-Process "$env:TEMP\CRU\CRU.exe" -Wait; Start-Process "$env:TEMP\CRU\restart64.exe" -Wait }
-$Modules["RemoveWindowsAI"] = {
-    try {
-        & ([scriptblock]::Create((Invoke-RestMethod "https://raw.githubusercontent.com/zoicware/RemoveWindowsAI/main/RemoveWindowsAi.ps1"))) -nonInteractive
-    }
-    catch {
-        Write-Log "Remove Windows AI failed: $($_.Exception.Message)" "Error"
-        throw
-    }
-}
 
 $Modules["AddShortcut"] = {
     $iconUrl = "https://catsmoker.github.io/freemixkit_icon.ico"
@@ -688,8 +593,9 @@ $Modules["AddShortcut"] = {
         Write-Log "Icon download failed, continuing without icon: $($_.Exception.Message)" "Warn"
     }
 
+    $shortcutShell = if (Get-Command pwsh.exe -ErrorAction SilentlyContinue) { "pwsh.exe" } else { "powershell.exe" }
     $s = (New-Object -ComObject WScript.Shell).CreateShortcut("$env:USERPROFILE\Desktop\FreeMixKit.lnk")
-    $s.TargetPath = "powershell.exe"
+    $s.TargetPath = $shortcutShell
     $s.Arguments = "-NoProfile -ExecutionPolicy Bypass -Command `"irm https://raw.githubusercontent.com/catsmoker/FreeMixKit/main/w.ps1 | iex`""
     if (Test-Path $iconPath) { $s.IconLocation = $iconPath }
     $s.Save()
@@ -724,64 +630,28 @@ Register-Module "MalwareScanAdv" "Malware Scan Adv" "Downloads and runs Tron Scr
     TimeoutSec = 7200
 }
 Register-Module "SystemReport" "System Report" "Generates a text file with system specs on your desktop." $Modules["SystemReport"] "Low"
-Register-Module "ActivateWindows" "Activate Windows" "Runs MAS (Microsoft Activation Scripts) to activate Windows." $Modules["ActivateWindows"] "High"
-Register-Module "ActivateIDM" "Activate IDM" "Activates Internet Download Manager (IDM)." $Modules["ActivateIDM"] "High"
-Register-Module "ToggleUpdates" "Toggle Updates" "Enables or Disables Windows Update service." $Modules["ToggleUpdates"] "High" @{
-    ConfirmMessage = "This changes Windows Update service behavior. Continue?"
-    RollbackHint = "Run Toggle Updates again to restore the previous mode."
-    Verify = {
-        $svc = Get-Service wuauserv
-        $target = $Script:ModuleExecutionContext["TargetStartupType"]
-        return ($null -ne $target) -and ($svc.StartType.ToString() -eq $target)
-    }
-}
-Register-Module "ToggleDefender" "Toggle Defender" "Toggles Real-time monitoring for Windows Defender." $Modules["ToggleDefender"] "High" @{
-    ConfirmMessage = "This changes Defender real-time protection. Continue?"
-    RollbackHint = "Run Toggle Defender again to revert."
-    Verify = {
-        $prefs = Get-MpPreference
-        $target = [bool]$Script:ModuleExecutionContext["TargetDefenderDisabled"]
-        return ([bool]$prefs.DisableRealtimeMonitoring) -eq $target
-    }
-}
-Register-Module "DisableTelemetry" "Disable Telemetry" "Toggles Windows data collection policies." $Modules["DisableTelemetry"] "High" @{
-    ConfirmMessage = "This changes telemetry policy registry values. Continue?"
-    RollbackHint = "Run Disable Telemetry again to toggle back."
-    Verify = {
-        $target = [int]$Script:ModuleExecutionContext["TargetTelemetryValue"]
-        return Test-TelemetryValue -ExpectedValue $target
-    }
-}
-Register-Module "RegistryOptimize" "Registry Optimize" "Tweaks NTFS access updates and System Responsiveness." $Modules["RegistryOptimize"] "Medium"
-Register-Module "AdobeFree" "Adobe Free (GenP)" "Downloads Creative Cloud and GenP activator." $Modules["AdobeFree"] "High" @{
+Register-Module "MAS" "MAS" "Runs MAS (Microsoft Activation Scripts) to activate Windows." $Modules["MAS"] "High"
+Register-Module "IAS" "IAS" "Activates Internet Download Manager (IDM)." $Modules["IAS"] "High"
+Register-Module "AdobeGenP" "Adobe GenP" "Downloads Creative Cloud and GenP activator." $Modules["AdobeGenP"] "High" @{
     RequiresNetwork = $true
     RetryCount = 3
 }
-Register-Module "SoftwareUpdate" "Software Update" "Upgrades all installed software via Winget." $Modules["SoftwareUpdate"] "Low" @{
+Register-Module "WingetUpgrade" "Winget Upgrade" "Upgrades all installed software via Winget." $Modules["WingetUpgrade"] "Low" @{
     RequiresNetwork = $true
     RetryCount = 3
     TimeoutSec = 7200
     Verify = { [bool](Get-Command winget -ErrorAction SilentlyContinue) }
 }
-Register-Module "SpotifyPro" "Spotify Pro" "Installs Spicetify for Spotify customization/ad-blocking." $Modules["SpotifyPro"] "Medium" @{
+Register-Module "Spicetify" "Spicetify" "Installs Spicetify for Spotify customization/ad-blocking." $Modules["Spicetify"] "Medium" @{
     RequiresNetwork = $true
     RetryCount = 3
     TimeoutSec = 3600
 }
-Register-Module "DiscordPro" "Discord Pro" "Installs Legcord (BetterDiscord alternative)." $Modules["DiscordPro"] "Low" @{
+Register-Module "Legcord" "Legcord" "Installs Legcord (BetterDiscord alternative)." $Modules["Legcord"] "Low" @{
     RequiresNetwork = $true
     RetryCount = 3
 }
-Register-Module "SetGoogleDNS" "Set Google DNS" "Sets DNS to 8.8.8.8 / 8.8.4.4." $Modules["SetGoogleDNS"] "Low" @{
-    RollbackHint = "Run Reset Network or choose a different DNS profile."
-    Verify = { Test-DnsServersMatch -ExpectedServers @("8.8.8.8", "8.8.4.4") }
-}
-Register-Module "SetCloudflareDNS" "Set Cloudflare DNS" "Sets DNS to 1.1.1.1 / 1.0.0.1." $Modules["SetCloudflareDNS"] "Low" @{
-    RollbackHint = "Run Reset Network or choose a different DNS profile."
-    Verify = { Test-DnsServersMatch -ExpectedServers @("1.1.1.1", "1.0.0.1") }
-}
-Register-Module "ResetNetwork" "Reset Network" "Resets DNS and Winsock settings." $Modules["ResetNetwork"] "Low"
-Register-Module "CTTUtility" "CTT WinUtil" "Launches Chris Titus Tech's Windows Utility." $Modules["CTTUtility"] "Medium" @{
+Register-Module "WinUtil" "WinUtil" "Launches Chris Titus Tech's Windows Utility." $Modules["WinUtil"] "Medium" @{
     RequiresNetwork = $true
     RetryCount = 3
 }
@@ -789,11 +659,6 @@ Register-Module "RegistryBackup" "Registry Backup" "Backs up the HKLM registry h
 Register-Module "FixResolution" "Fix Resolution" "Uses CRU to restart graphics driver and fix resolution." $Modules["FixResolution"] "Medium" @{
     RequiresNetwork = $true
     RetryCount = 3
-}
-Register-Module "RemoveWindowsAI" "Remove Windows AI" "Removes Copilot and Recall features." $Modules["RemoveWindowsAI"] "High" @{
-    RequiresNetwork = $true
-    RetryCount = 3
-    ConfirmMessage = "This applies system-level AI feature removals. Continue?"
 }
 Register-Module "AddShortcut" "Add Shortcut" "Creates a shortcut for this script on the Desktop." $Modules["AddShortcut"] "Low"
 
@@ -814,35 +679,23 @@ $Col1 = @(
     @{T = "I"; L = "System Report"; A = "SystemReport"; D = "Generates a text file with system specs on your desktop." }
     @{T = "H"; L = "" }
     @{T = "H"; L = "[ ACTIVATION ]" }
-    @{T = "I"; L = "Activate Windows"; A = "ActivateWindows"; D = "Runs MAS (Microsoft Activation Scripts) to activate Windows." }
-    @{T = "I"; L = "Activate IDM"; A = "ActivateIDM"; D = "Activates Internet Download Manager (IDM)." }
-    @{T = "H"; L = "" }
-    @{T = "H"; L = "[ TWEAKS ]" }
-    @{T = "I"; L = "Toggle Updates"; A = "ToggleUpdates"; D = "Enables or Disables Windows Update service." }
-    @{T = "I"; L = "Toggle Defender"; A = "ToggleDefender"; D = "Toggles Real-time monitoring for Windows Defender." }
-    @{T = "I"; L = "Disable Telemetry"; A = "DisableTelemetry"; D = "Disables Windows data collection policies." }
-    @{T = "I"; L = "Registry Optimize"; A = "RegistryOptimize"; D = "Tweaks NTFS access updates and System Responsiveness." }
+    @{T = "I"; L = "MAS"; A = "MAS"; D = "Runs MAS (Microsoft Activation Scripts) to activate Windows." }
+    @{T = "I"; L = "IAS"; A = "IAS"; D = "Activates Internet Download Manager (IDM)." }
 )
 
 $Col2 = @(
     @{T = "H"; L = "[ SOFTWARE ]" }
-    @{T = "I"; L = "Adobe Free (GenP)"; A = "AdobeFree"; D = "Downloads Creative Cloud and GenP activator." }
-    @{T = "I"; L = "Software Update"; A = "SoftwareUpdate"; D = "Upgrades all installed software via Winget." }
-    @{T = "I"; L = "Spotify Pro"; A = "SpotifyPro"; D = "Installs Spicetify for Spotify customization/ad-blocking." }
-    @{T = "I"; L = "Discord Pro"; A = "DiscordPro"; D = "Installs Legcord (BetterDiscord alternative)." }
-    @{T = "H"; L = "" }
-    @{T = "H"; L = "[ NETWORK ]" }
-    @{T = "I"; L = "Set Google DNS"; A = "SetGoogleDNS"; D = "Sets DNS to 8.8.8.8 / 8.8.4.4." }
-    @{T = "I"; L = "Set Cloudflare DNS"; A = "SetCloudflareDNS"; D = "Sets DNS to 1.1.1.1 / 1.0.0.1." }
-    @{T = "I"; L = "Reset Network"; A = "ResetNetwork"; D = "Resets DNS and Winsock settings." }
+    @{T = "I"; L = "Adobe GenP"; A = "AdobeGenP"; D = "Downloads Creative Cloud and GenP activator." }
+    @{T = "I"; L = "Winget Upgrade"; A = "WingetUpgrade"; D = "Upgrades all installed software via Winget." }
+    @{T = "I"; L = "Spicetify"; A = "Spicetify"; D = "Installs Spicetify for Spotify customization/ad-blocking." }
+    @{T = "I"; L = "Legcord"; A = "Legcord"; D = "Installs Legcord (BetterDiscord alternative)." }
     @{T = "H"; L = "" }
     @{T = "H"; L = "[ UTILITIES ]" }
-    @{T = "I"; L = "CTT WinUtil"; A = "CTTUtility"; D = "Launches Chris Titus Tech's Windows Utility." }
+    @{T = "I"; L = "WinUtil"; A = "WinUtil"; D = "Launches Chris Titus Tech's Windows Utility." }
     @{T = "I"; L = "Registry Backup"; A = "RegistryBackup"; D = "Backs up the HKLM registry hive to Desktop." }
     @{T = "I"; L = "Fix Resolution"; A = "FixResolution"; D = "Uses CRU to restart graphics driver and fix resolution." }
     @{T = "H"; L = "" }
-    @{T = "H"; L = "[ AI & EXIT ]" }
-    @{T = "I"; L = "Remove Windows AI"; A = "RemoveWindowsAI"; D = "Removes Copilot and Recall features." }
+    @{T = "H"; L = "[ EXIT ]" }
     @{T = "I"; L = "Add Shortcut"; A = "AddShortcut"; D = "Creates a shortcut for this script on the Desktop." }
     @{T = "I"; L = "Exit Application"; A = "EXIT"; D = "Closes the application." }
 )
@@ -870,7 +723,12 @@ for ($i = 0; $i -lt $Col2.Count; $i++) {
     if ($Col2[$i].T -eq "I") { $NavItems += @{C = 1; R = $i; L = $Col2[$i].L; A = $Col2[$i].A; D = $Col2[$i].D } }
 }
 
+for ($i = 0; $i -lt $NavItems.Count; $i++) {
+    $NavItems[$i]["N"] = $i + 1
+}
+
 $SelIdx = 0 # Index in $NavItems
+$NumberInput = ""
 $LastActionLabel = "None"
 $LastActionStatus = "N/A"
 $LastActionDuration = "0.00s"
@@ -891,7 +749,7 @@ while ($true) {
     [Console]::SetCursorPosition(0, 0)
     Write-Host $line -F Blue
     Write-Host " FREEMIXKIT v5.7" -NoNewline -F Cyan
-    Write-Host " | $timeNow | ARROWS Navigate | ENTER Run | Q/ESC Exit" -F Gray
+    Write-Host " | $timeNow | ARROWS Navigate | NUMBER + ENTER Run | Q/ESC Exit" -F Gray
     Write-Host $line -F Blue
     Write-Host " OS: $($SysInfo.OS) | CPU: $($SysInfo.CPU) | RAM: $($SysInfo.RAM)" -F DarkGray
     Write-Host $dash -F Blue
@@ -911,7 +769,8 @@ while ($true) {
         else {
             # Check if selected
             $isSel = ($NavItems[$SelIdx].C -eq 0 -and $NavItems[$SelIdx].R -eq $i)
-            $label = $item.L
+            $navItem = $NavItems | Where-Object { $_.C -eq 0 -and $_.R -eq $i } | Select-Object -First 1
+            $label = "[{0}] {1}" -f $navItem.N, $item.L
             if ($label.Length -gt 48) { $label = $label.Substring(0, 45) + "..." }
             if ($isSel) { Write-Host " > $label " -B DarkCyan -F White }
             else { Write-Host "   $label " -F Green }
@@ -932,7 +791,8 @@ while ($true) {
         else {
             # Check if selected
             $isSel = ($NavItems[$SelIdx].C -eq 1 -and $NavItems[$SelIdx].R -eq $i)
-            $label = $item.L
+            $navItem = $NavItems | Where-Object { $_.C -eq 1 -and $_.R -eq $i } | Select-Object -First 1
+            $label = "[{0}] {1}" -f $navItem.N, $item.L
             if ($label.Length -gt 48) { $label = $label.Substring(0, 45) + "..." }
             if ($isSel) { Write-Host " > $label " -B DarkCyan -F White }
             else { Write-Host "   $label " -F Green }
@@ -948,7 +808,6 @@ while ($true) {
     $curr = $NavItems[$SelIdx]
     $currMeta = if ($curr.A -ne "EXIT" -and $ModuleMeta.Contains($curr.A)) { $ModuleMeta[$curr.A] } else { $null }
     $risk = if ($currMeta) { $currMeta.Risk } else { "N/A" }
-    $needsNet = if ($currMeta) { [bool]$currMeta.RequiresNetwork } else { $false }
     $riskColor = switch ($risk) {
         "High" { "Red" }
         "Medium" { "Yellow" }
@@ -956,7 +815,7 @@ while ($true) {
         default { "DarkGray" }
     }
 
-    for ($lineIdx = 1; $lineIdx -le 6; $lineIdx++) {
+    for ($lineIdx = 1; $lineIdx -le 5; $lineIdx++) {
         [Console]::SetCursorPosition(0, $maxY + $lineIdx)
         Write-Host (" " * ($uiWidth - 1))
     }
@@ -964,19 +823,22 @@ while ($true) {
     [Console]::SetCursorPosition(2, $maxY + 1)
     $infoText = $curr.D
     if ($infoText.Length -gt ($uiWidth - 10)) { $infoText = $infoText.Substring(0, $uiWidth - 13) + "..." }
-    Write-Host "INFO: $infoText" -F Yellow
+    Write-Host "$($curr.L): " -NoNewline -F Cyan
+    Write-Host $infoText -F Gray
     [Console]::SetCursorPosition(2, $maxY + 2)
-    Write-Host "SELECTED: $($curr.L) | Risk: " -NoNewline -F Gray
+    Write-Host "Risk: " -NoNewline -F Gray
     Write-Host $risk -NoNewline -F $riskColor
-    Write-Host " | Network: $(if ($needsNet) { "Required" } else { "No" })" -F Gray
+    Write-Host " | Last: $LastActionLabel | $LastActionStatus" -F DarkGray
     [Console]::SetCursorPosition(2, $maxY + 3)
-    Write-Host "LAST: $LastActionLabel | Status: $LastActionStatus | Duration: $LastActionDuration | At: $LastActionAt" -F DarkGray
-    [Console]::SetCursorPosition(2, $maxY + 4)
     $lastMsg = $LastActionMessage
-    if ($lastMsg.Length -gt ($uiWidth - 17)) { $lastMsg = $lastMsg.Substring(0, $uiWidth - 20) + "..." }
-    Write-Host "LAST MESSAGE: $lastMsg" -F DarkGray
+    if ($lastMsg.Length -gt ($uiWidth - 22)) { $lastMsg = $lastMsg.Substring(0, $uiWidth - 25) + "..." }
+    Write-Host "Last message: $lastMsg" -F DarkGray
+    [Console]::SetCursorPosition(0, $maxY + 4)
+    Write-Host $dash -F Blue
     [Console]::SetCursorPosition(2, $maxY + 5)
-    Write-Host "KEYS: Up/Down move | Left/Right switch column | Enter execute | Q or Esc exit" -F DarkGray
+    Write-Host "Input: $NumberInput" -F Gray
+    [Console]::SetCursorPosition(2, $maxY + 6)
+    Write-Host "Keys: Up/Down move | Left/Right switch column | Type number + Enter | Backspace clear | Q or Esc exit" -F DarkGray
 
     # INPUT HANDLING
     $k = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
@@ -1012,6 +874,25 @@ while ($true) {
         }
         13 {
             # ENTER
+            if ($NumberInput) {
+                $targetNumber = 0
+                if ([int]::TryParse($NumberInput, [ref]$targetNumber)) {
+                    $target = $NavItems | Where-Object { $_.N -eq $targetNumber } | Select-Object -First 1
+                    if ($target) {
+                        $SelIdx = $NavItems.IndexOf($target)
+                        $curr = $NavItems[$SelIdx]
+                    }
+                    else {
+                        $LastActionLabel = "Number Input"
+                        $LastActionStatus = "Invalid"
+                        $LastActionMessage = "No item matches number $NumberInput."
+                        $NumberInput = ""
+                        continue
+                    }
+                }
+                $NumberInput = ""
+            }
+
             $action = $curr.A
             if ($action -eq "EXIT") {
                 Export-SessionResults
@@ -1060,6 +941,31 @@ while ($true) {
             $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
             Clear-Host
         }
+        8 {
+            if ($NumberInput.Length -gt 0) {
+                $NumberInput = $NumberInput.Substring(0, $NumberInput.Length - 1)
+            }
+        }
+        48 { if ($NumberInput.Length -lt 2) { $NumberInput += "0" } }
+        49 { if ($NumberInput.Length -lt 2) { $NumberInput += "1" } }
+        50 { if ($NumberInput.Length -lt 2) { $NumberInput += "2" } }
+        51 { if ($NumberInput.Length -lt 2) { $NumberInput += "3" } }
+        52 { if ($NumberInput.Length -lt 2) { $NumberInput += "4" } }
+        53 { if ($NumberInput.Length -lt 2) { $NumberInput += "5" } }
+        54 { if ($NumberInput.Length -lt 2) { $NumberInput += "6" } }
+        55 { if ($NumberInput.Length -lt 2) { $NumberInput += "7" } }
+        56 { if ($NumberInput.Length -lt 2) { $NumberInput += "8" } }
+        57 { if ($NumberInput.Length -lt 2) { $NumberInput += "9" } }
+        96 { if ($NumberInput.Length -lt 2) { $NumberInput += "0" } }
+        97 { if ($NumberInput.Length -lt 2) { $NumberInput += "1" } }
+        98 { if ($NumberInput.Length -lt 2) { $NumberInput += "2" } }
+        99 { if ($NumberInput.Length -lt 2) { $NumberInput += "3" } }
+        100 { if ($NumberInput.Length -lt 2) { $NumberInput += "4" } }
+        101 { if ($NumberInput.Length -lt 2) { $NumberInput += "5" } }
+        102 { if ($NumberInput.Length -lt 2) { $NumberInput += "6" } }
+        103 { if ($NumberInput.Length -lt 2) { $NumberInput += "7" } }
+        104 { if ($NumberInput.Length -lt 2) { $NumberInput += "8" } }
+        105 { if ($NumberInput.Length -lt 2) { $NumberInput += "9" } }
         81 {
             Export-SessionResults
             Clear-Host
