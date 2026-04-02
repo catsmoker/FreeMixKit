@@ -13,6 +13,7 @@
 # ==============================================================================
 
 $ScriptUrl = "https://raw.githubusercontent.com/catsmoker/FreeMixKit/main/w.ps1"
+$MSGameBarFixScriptUrl = "https://raw.githubusercontent.com/ajw0/ms-gamebar-fix/refs/heads/main/ms-gamebar-fix.ps1"
 $AppVersion = "5.8"
 $DataRoot = "C:\\FreeMixKit"
 $DataTemp = Join-Path $DataRoot "temp"
@@ -642,12 +643,16 @@ $Modules["IAS"] = { Invoke-RestMethod https://coporton.com/ias | Invoke-Expressi
 # --- UTILS ---
 $Modules["WinUtil"] = { Invoke-RestMethod https://christitus.com/win | Invoke-Expression }
 $Modules["FixResolution"] = { Invoke-WebRequest "https://www.monitortests.com/download/cru/cru-1.5.3.zip" -OutFile "$DataDownloads\\cru.zip"; Expand-Archive "$DataDownloads\\cru.zip" "$DataTemp\\CRU" -Force; Start-Process "$DataTemp\\CRU\\CRU.exe" -Wait; Start-Process "$DataTemp\\CRU\\restart64.exe" -Wait }
+$Modules["MSGameBarFix"] = {
+    Write-Log "Downloading and launching ms-gamebar-fix..." "Info"
+    Invoke-RestMethod $MSGameBarFixScriptUrl | Invoke-Expression
+}
 $Modules["OpenGitHub"] = { Start-Process "https://github.com/catsmoker/FreeMixKit" }
 $Modules["OpenWebsite"] = { Start-Process "https://catsmoker.vercel.app/" }
 
 $Modules["AddShortcut"] = {
     $iconUrl = "https://raw.githubusercontent.com/catsmoker/FreeMixKit/refs/heads/main/freemixkit_icon.ico"
-    $iconPath = "$env:USERPROFILE\Pictures\freemixkit_icon.ico"
+    $iconPath = Join-Path $DataDownloads "freemixkit_icon.ico"
     try {
         Invoke-WebRequest $iconUrl -OutFile $iconPath -ErrorAction SilentlyContinue
     }
@@ -706,6 +711,9 @@ Register-Module "WinUtil" "WinUtil" "Launches Chris Titus Tech's Windows Utility
 Register-Module "FixResolution" "Fix Resolution" "Uses CRU to restart graphics driver and fix resolution." $Modules["FixResolution"] "Medium" @{
     RequiresNetwork = $true
 }
+Register-Module "MSGameBarFix" "ms-gamebar-fix" "Downloads and runs the Game Bar popup fixer from ajw0/ms-gamebar-fix." $Modules["MSGameBarFix"] "Medium" @{
+    RequiresNetwork = $true
+}
 Register-Module "OpenGitHub" "GitHub Repository" "Opens the FreeMixKit GitHub page in your browser." $Modules["OpenGitHub"] "Low"
 Register-Module "OpenWebsite" "Website" "Opens the author's website in your browser." $Modules["OpenWebsite"] "Low"
 Register-Module "AddShortcut" "Add Shortcut" "Creates a shortcut for this script on the Desktop." $Modules["AddShortcut"] "Low"
@@ -740,6 +748,7 @@ $Col2 = @(
     @{T = "H"; L = "[ UTILITIES ]" }
     @{T = "I"; L = "WinUtil"; A = "WinUtil"; D = "Launches Chris Titus Tech's Windows Utility." }
     @{T = "I"; L = "Fix Resolution"; A = "FixResolution"; D = "Uses CRU to restart graphics driver and fix resolution." }
+    @{T = "I"; L = "ms-gamebar-fix"; A = "MSGameBarFix"; D = "Downloads and runs the Game Bar popup fixer from ajw0/ms-gamebar-fix." }
     @{T = "H"; L = "" }
     @{T = "H"; L = "[ LINKS ]" }
     @{T = "I"; L = "GitHub Repository"; A = "OpenGitHub"; D = "Open the FreeMixKit GitHub page." }
