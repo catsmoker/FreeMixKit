@@ -644,8 +644,16 @@ $Modules["IAS"] = { Invoke-RestMethod https://coporton.com/ias | Invoke-Expressi
 $Modules["WinUtil"] = { Invoke-RestMethod https://christitus.com/win | Invoke-Expression }
 $Modules["FixResolution"] = { Invoke-WebRequest "https://www.monitortests.com/download/cru/cru-1.5.3.zip" -OutFile "$DataDownloads\\cru.zip"; Expand-Archive "$DataDownloads\\cru.zip" "$DataTemp\\CRU" -Force; Start-Process "$DataTemp\\CRU\\CRU.exe" -Wait; Start-Process "$DataTemp\\CRU\\restart64.exe" -Wait }
 $Modules["MSGameBarFix"] = {
+    $shellExe = if (Get-Command pwsh.exe -ErrorAction SilentlyContinue) { "pwsh.exe" } else { "powershell.exe" }
+    $localScriptPath = Join-Path $DataTemp "ms-gamebar-fix.ps1"
+
     Write-Log "Downloading and launching ms-gamebar-fix..." "Info"
-    Invoke-RestMethod $MSGameBarFixScriptUrl | Invoke-Expression
+    Invoke-WebRequest -Uri $MSGameBarFixScriptUrl -OutFile $localScriptPath
+    Start-Process -FilePath $shellExe -ArgumentList @(
+        "-NoProfile",
+        "-ExecutionPolicy", "Bypass",
+        "-File", ('"{0}"' -f $localScriptPath)
+    ) -Wait
 }
 $Modules["OpenGitHub"] = { Start-Process "https://github.com/catsmoker/FreeMixKit" }
 $Modules["OpenWebsite"] = { Start-Process "https://catsmoker.vercel.app/" }
