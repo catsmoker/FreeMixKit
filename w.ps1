@@ -502,23 +502,94 @@ $Modules["AdobeGenP"] = {
     Write-Log "Automating Adobe Creative Cloud installation via Winget..." "Info"
     Install-WingetPackage -Id "Adobe.CreativeCloud"
     
-    Write-Log "Opening GenP Guide (Important: Sign in to CC first)..." "Info"
-    $genpGuideUrl = "https://wiki.dbzer0.com/genp-guides/guide/#guide-2"
-    Start-Process $genpGuideUrl
-
-    $genpLocal = Join-Path $PSScriptRoot "GenP-v4.0.0.exe"
-    if (Test-Path $genpLocal) {
-        $useBundledGenP = Confirm-Action "Use the prebuilt GenP included in this repo? Choose N to download it manually from the guide website."
-        if ($useBundledGenP) {
-            Write-Log "Launching bundled GenP patcher from repo..." "Info"
-            Start-Process $genpLocal
-        }
-        else {
-            Write-Log "User chose manual GenP download from the guide website." "Info"
+    # --- GenP Automation (Multi-Source Dynamic) ---
+    $guideUrl = "https://wiki.dbzer0.com/genp-guides/guide/"
+    $internxtUrl = "https://secure.eu.internxt.com/sh/file/stTZF_YkQUS7s_7pc6x50g/e0_-sPyi"
+    
+    # 1. Official Guide Version (Source of Truth)
+    Write-Log "Checking official GenP guide for latest recommended version..." "Info"
+    $targetVersion = "unknown"
+    try {
+        $page = Invoke-WebRequest -Uri $guideUrl -UseBasicParsing -ErrorAction Stop
+        if ($page.Content -match "GENP v([0-9\.]+)") {
+            $targetVersion = "v" + $Matches[1]
+            Write-Log "Official Recommended Version: $targetVersion" "Success"
         }
     }
+    catch {
+        Write-Log "Could not reach guide website. Cannot verify latest version." "Warn"
+    }
+
+    if ($targetVersion -eq "unknown") {
+        Write-Log "Opening official guide for manual download..." "Info"
+        Start-Process $internxtUrl
+        return
+    }
+
+    # 2. Search Sources for matching version
+    $sources = @(
+        @{ Name = "catsmoker (Primary)"; Api = "https://api.github.com/repos/catsmoker/FreeMixKit/contents/"; Type = "Contents" },
+        @{ Name = "Mojszli"; Api = "https://api.github.com/repos/Mojszli/GenP/releases/tags/tag1"; Type = "Release" },
+        @{ Name = "TheMythologist"; Api = "https://api.github.com/repos/TheMythologist/GenP/releases"; Type = "Releases" }
+    )
+
+    $downloadUrl = $null
+    $foundFileName = $null
+
+    foreach ($source in $sources) {
+        Write-Log "Searching source: $($source.Name)..." "Info"
+        try {
+            $data = Invoke-RestMethod -Uri $source.Api -ErrorAction Stop
+            
+            if ($source.Type -eq "Contents") {
+                $file = $data | Where-Object { $_.name -match "GenP-$([regex]::Escape($targetVersion))\.exe$" } | Select-Object -First 1
+                if ($file) {
+                    $downloadUrl = $file.download_url
+                    $foundFileName = $file.name
+                }
+            }
+            elseif ($source.Type -eq "Release") {
+                $asset = $data.assets | Where-Object { $_.name -match "GenP-$([regex]::Escape($targetVersion))\.exe$" } | Select-Object -First 1
+                if ($asset) {
+                    $downloadUrl = $asset.browser_download_url
+                    $foundFileName = $asset.name
+                }
+            }
+            elseif ($source.Type -eq "Releases") {
+                foreach ($rel in $data) {
+                    $asset = $rel.assets | Where-Object { $_.name -match "GenP-$([regex]::Escape($targetVersion))\.exe$" } | Select-Object -First 1
+                    if ($asset) {
+                        $downloadUrl = $asset.browser_download_url
+                        $foundFileName = $asset.name
+                        break
+                    }
+                }
+            }
+
+            if ($downloadUrl) {
+                Write-Log "Found $targetVersion at $($source.Name)!" "Success"
+                break
+            }
+        }
+        catch {
+            Write-Log "Source $($source.Name) search failed." "Warn"
+        }
+    }
+
+    # 3. Download and Run
+    if ($downloadUrl) {
+        $genpPath = Join-Path $PSScriptRoot $foundFileName
+        if (-not (Test-Path $genpPath)) {
+            Write-Log "Downloading $foundFileName..." "Info"
+            Invoke-WebRequest -Uri $downloadUrl -OutFile $genpPath
+        }
+        Write-Log "Launching GenP Patcher..." "Success"
+        Start-Process $genpPath
+    }
     else {
-        Write-Log "Bundled GenP patcher not found in repo. Download it manually from the guide website." "Warn"
+        Write-Log "Could not find an automated download for $targetVersion in any source." "Warn"
+        Write-Log "Opening official guide for manual download..." "Info"
+        Start-Process $internxtUrl
     }
 }
 $Modules["WingetUpgrade"] = {
