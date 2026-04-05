@@ -482,7 +482,7 @@ $Modules["AdobeGenP"] = {
     Write-Log "Opening Creative Cloud..."
     Start-Process "https://www.adobe.com/download/creative-cloud"
     Write-Log "Opening GenP..."
-    Start-Process "https://gen.paramore.su"
+    Start-Process "https://wiki.dbzer0.com/genp-guides/guide/#guide-2"
 }
 $Modules["WingetUpgrade"] = {
     Ensure-WingetInstalled
