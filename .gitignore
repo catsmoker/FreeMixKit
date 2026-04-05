@@ -1,0 +1,22 @@
+# Hidden dotfiles
+.*
+!.gitignore
+
+# Editor and IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS-generated files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# PowerShell logs and transcript output
+*.log
+*.tmp
+*.bak
+*.ps1xml
+PowerShell_transcript*.txt

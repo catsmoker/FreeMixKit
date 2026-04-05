@@ -14,6 +14,8 @@
 
 $ScriptUrl = "https://raw.githubusercontent.com/catsmoker/FreeMixKit/main/w.ps1"
 $MSGameBarFixScriptUrl = "https://raw.githubusercontent.com/ajw0/ms-gamebar-fix/refs/heads/main/ms-gamebar-fix.ps1"
+$WinUtilLatestScriptUrl = "https://christitus.com/win"
+$WinUtilLegacyWindows10ScriptUrl = "https://github.com/ChrisTitusTech/winutil/releases/download/25.10.06/Winutil.ps1"
 $AppVersion = "5.8"
 $DataRoot = "C:\\FreeMixKit"
 $DataTemp = Join-Path $DataRoot "temp"
@@ -149,6 +151,23 @@ function Test-NetworkConnectivity {
     catch {
         return $false
     }
+}
+
+function Get-WindowsBuildNumber {
+    try {
+        return [int](Get-ItemPropertyValue -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion" -Name "CurrentBuild")
+    }
+    catch {
+        return 0
+    }
+}
+
+function Test-IsWindows11 {
+    if ($SysInfo.OS -match "Windows 11") {
+        return $true
+    }
+
+    return (Get-WindowsBuildNumber) -ge 22000
 }
 
 function Get-SpotifyExecutablePath {
@@ -340,10 +359,10 @@ $Modules["DevChoice"] = {
 
     # 2. Packages
     # VC++ runtime coverage (x86 + x64):
-    # Latest v14 (VS 2017–2026), VS 2015 (VC++ 14.0), 2013 (12.0), 2012 (11.0), 2010 (10.0), 2008 (9.0), 2005 (8.0)
+    # Latest v14 (VS 2017-2026), VS 2015 (VC++ 14.0), 2013 (12.0), 2012 (11.0), 2010 (10.0), 2008 (9.0), 2005 (8.0)
     $vcRedists = @(
-        @{ Version = "Latest v14 (VS 2017–2026)"; Arch = "x86"; Id = "Microsoft.VCRedist.2015+.x86" },
-        @{ Version = "Latest v14 (VS 2017–2026)"; Arch = "x64"; Id = "Microsoft.VCRedist.2015+.x64" },
+        @{ Version = "Latest v14 (VS 2017-2026)"; Arch = "x86"; Id = "Microsoft.VCRedist.2015+.x86" },
+        @{ Version = "Latest v14 (VS 2017-2026)"; Arch = "x64"; Id = "Microsoft.VCRedist.2015+.x64" },
         @{ Version = "Visual Studio 2015 (VC++ 14.0)"; Arch = "x86"; Id = "Microsoft.VCRedist.2015+.x86" },
         @{ Version = "Visual Studio 2015 (VC++ 14.0)"; Arch = "x64"; Id = "Microsoft.VCRedist.2015+.x64" },
         @{ Version = "Visual Studio 2013 (VC++ 12.0)"; Arch = "x86"; Id = "Microsoft.VCRedist.2013.x86" },
@@ -479,10 +498,25 @@ $Modules["SystemReport"] = {
 
 # --- APPS ---
 $Modules["AdobeGenP"] = {
+<<<<<<< HEAD
     Write-Log "Opening Creative Cloud..."
     Start-Process "https://www.adobe.com/download/creative-cloud"
     Write-Log "Opening GenP..."
     Start-Process "https://wiki.dbzer0.com/genp-guides/guide/#guide-2"
+=======
+    Ensure-WingetInstalled
+    Write-Log "Automating Adobe Creative Cloud installation via Winget..." "Info"
+    Install-WingetPackage -Id "Adobe.CreativeCloud"
+    
+    Write-Log "Opening GenP Guide (Important: Sign in to CC first)..." "Info"
+    Start-Process "https://wiki.dbzer0.com/genp-guides/guide/#guide-2"
+
+    $genpLocal = Join-Path $PSScriptRoot "GenP-v4.0.0.exe"
+    if (Test-Path $genpLocal) {
+        Write-Log "Launching GenP Patcher..." "Info"
+        Start-Process $genpLocal
+    }
+>>>>>>> 2d7d181 (fix and update Adobe GenP module)
 }
 $Modules["WingetUpgrade"] = {
     Ensure-WingetInstalled
@@ -493,7 +527,7 @@ $Modules["WingetUpgrade"] = {
 }
 $Modules["Spicetify"] = {
     # ===============================
-    # Spotify → Spicetify Installer
+    # Spotify -> Spicetify Installer
     # ===============================
 
     Write-Log "Checking Spotify installation..." "Info"
@@ -641,12 +675,68 @@ $Modules["MAS"] = { Invoke-RestMethod https://get.activated.win | Invoke-Express
 $Modules["IAS"] = { Invoke-RestMethod https://coporton.com/ias | Invoke-Expression }
 
 # --- UTILS ---
-$Modules["WinUtil"] = { Invoke-RestMethod https://christitus.com/win | Invoke-Expression }
-$Modules["FixResolution"] = { Invoke-WebRequest "https://www.monitortests.com/download/cru/cru-1.5.3.zip" -OutFile "$DataDownloads\\cru.zip"; Expand-Archive "$DataDownloads\\cru.zip" "$DataTemp\\CRU" -Force; Start-Process "$DataTemp\\CRU\\CRU.exe" -Wait; Start-Process "$DataTemp\\CRU\\restart64.exe" -Wait }
+$Modules["WinUtil"] = {
+    $shellExe = if (Get-Command pwsh.exe -ErrorAction SilentlyContinue) { "pwsh.exe" } else { "powershell.exe" }
+    $isWindows11 = Test-IsWindows11
+    $scriptUrl = if ($isWindows11) { $WinUtilLatestScriptUrl } else { $WinUtilLegacyWindows10ScriptUrl }
+    $scriptFlavor = if ($isWindows11) { "latest Windows 11 build" } else { "pinned Windows 10-compatible build (25.10.06)" }
+    $scriptFileName = if ($isWindows11) { "winutil-latest.ps1" } else { "winutil-25.10.06.ps1" }
+    $scriptPath = Join-Path $DataTemp $scriptFileName
+
+    try {
+        if (-not $isWindows11) {
+            Write-Log "Windows 10 detected. WinUtil dropped Windows 10 support on 2025-10-14; launching pinned build 25.10.06 instead." "Warn"
+        }
+
+        Write-Log "Downloading WinUtil ($scriptFlavor)..." "Info"
+        Invoke-WebRequest -Uri $scriptUrl -OutFile $scriptPath
+
+        Write-Log "Launching WinUtil..." "Info"
+        Start-Process -FilePath $shellExe -ArgumentList @(
+            "-NoProfile",
+            "-ExecutionPolicy", "Bypass",
+            "-File", ('"{0}"' -f $scriptPath)
+        ) -Wait
+    }
+    catch {
+        Write-Log "WinUtil launch failed: $($_.Exception.Message)" "Error"
+        throw
+    }
+}
+$Modules["FixResolution"] = {
+    $cruThreadUrl = "https://www.monitortests.com/forum/Thread-Custom-Resolution-Utility-CRU"
+    $fallbackCruZipUrl = "https://www.monitortests.com/download/cru/cru-1.5.3.zip"
+    $cruZipUrl = $fallbackCruZipUrl
+    $cruZipPath = Join-Path $DataDownloads "cru.zip"
+    $cruExtractPath = Join-Path $DataTemp "CRU"
+
+    try {
+        Write-Log "Resolving latest CRU download link..." "Info"
+        $cruRequestParams = @{
+            Uri = $cruThreadUrl
+        }
+        if ($PSVersionTable.PSEdition -ne "Core") {
+            $cruRequestParams.UseBasicParsing = $true
+        }
+        $cruPage = Invoke-WebRequest @cruRequestParams
+        $cruMatch = [regex]::Match($cruPage.Content, 'https://www\.monitortests\.com/download/cru/cru-[0-9][0-9A-Za-z\.\-]*\.zip')
+        if ($cruMatch.Success) {
+            $cruZipUrl = $cruMatch.Value
+        }
+    }
+    catch {
+        Write-Log "Could not resolve latest CRU link automatically. Using fallback package URL." "Warn"
+    }
+
+    Write-Log "Downloading CRU from: $cruZipUrl" "Info"
+    Invoke-WebRequest -Uri $cruZipUrl -OutFile $cruZipPath
+    Expand-Archive $cruZipPath $cruExtractPath -Force
+    Start-Process (Join-Path $cruExtractPath "CRU.exe") -Wait
+    Start-Process (Join-Path $cruExtractPath "restart64.exe") -Wait
+}
 $Modules["MSGameBarFix"] = {
     $shellExe = if (Get-Command pwsh.exe -ErrorAction SilentlyContinue) { "pwsh.exe" } else { "powershell.exe" }
     $localScriptPath = Join-Path $DataTemp "ms-gamebar-fix.ps1"
-
     Write-Log "Downloading and launching ms-gamebar-fix..." "Info"
     Invoke-WebRequest -Uri $MSGameBarFixScriptUrl -OutFile $localScriptPath
     Start-Process -FilePath $shellExe -ArgumentList @(
@@ -700,7 +790,7 @@ Register-Module "MalwareScan" "Malware Scan" "Runs MRT, then downloads and runs 
 Register-Module "SystemReport" "System Report" "Generates a text file with system specs on your desktop." $Modules["SystemReport"] "Low"
 Register-Module "MAS" "MAS" "Runs MAS (Microsoft Activation Scripts) to activate Windows." $Modules["MAS"] "High"
 Register-Module "IAS" "IAS" "Activates Internet Download Manager (IDM)." $Modules["IAS"] "High"
-Register-Module "AdobeGenP" "Adobe GenP" "Downloads Creative Cloud and GenP activator." $Modules["AdobeGenP"] "High" @{
+Register-Module "AdobeGenP" "Adobe CC & GenP" "Downloads Creative Cloud and GenP activator." $Modules["AdobeGenP"] "High" @{
     RequiresNetwork = $true
 }
 Register-Module "WingetUpgrade" "Winget Upgrade" "Upgrades all installed software via Winget." $Modules["WingetUpgrade"] "Low" @{
