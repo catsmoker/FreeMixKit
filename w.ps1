@@ -498,25 +498,28 @@ $Modules["SystemReport"] = {
 
 # --- APPS ---
 $Modules["AdobeGenP"] = {
-<<<<<<< HEAD
-    Write-Log "Opening Creative Cloud..."
-    Start-Process "https://www.adobe.com/download/creative-cloud"
-    Write-Log "Opening GenP..."
-    Start-Process "https://wiki.dbzer0.com/genp-guides/guide/#guide-2"
-=======
     Ensure-WingetInstalled
     Write-Log "Automating Adobe Creative Cloud installation via Winget..." "Info"
     Install-WingetPackage -Id "Adobe.CreativeCloud"
     
     Write-Log "Opening GenP Guide (Important: Sign in to CC first)..." "Info"
-    Start-Process "https://wiki.dbzer0.com/genp-guides/guide/#guide-2"
+    $genpGuideUrl = "https://wiki.dbzer0.com/genp-guides/guide/#guide-2"
+    Start-Process $genpGuideUrl
 
     $genpLocal = Join-Path $PSScriptRoot "GenP-v4.0.0.exe"
     if (Test-Path $genpLocal) {
-        Write-Log "Launching GenP Patcher..." "Info"
-        Start-Process $genpLocal
+        $useBundledGenP = Confirm-Action "Use the prebuilt GenP included in this repo? Choose N to download it manually from the guide website."
+        if ($useBundledGenP) {
+            Write-Log "Launching bundled GenP patcher from repo..." "Info"
+            Start-Process $genpLocal
+        }
+        else {
+            Write-Log "User chose manual GenP download from the guide website." "Info"
+        }
     }
->>>>>>> 2d7d181 (fix and update Adobe GenP module)
+    else {
+        Write-Log "Bundled GenP patcher not found in repo. Download it manually from the guide website." "Warn"
+    }
 }
 $Modules["WingetUpgrade"] = {
     Ensure-WingetInstalled
