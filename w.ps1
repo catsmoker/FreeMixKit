@@ -592,6 +592,16 @@ $Modules["AdobeGenP"] = {
         Start-Process $internxtUrl
     }
 }
+$Modules["AdobeUninstall"] = {
+    $ccCleanerUrl = "https://swupmf.adobe.com/webfeed/CleanerTool/win/AdobeCreativeCloudCleanerTool.exe"
+    $ccCleanerPath = Join-Path $DataDownloads "AdobeCreativeCloudCleanerTool.exe"
+
+    Write-Log "Downloading Adobe Creative Cloud Cleaner Tool..." "Info"
+    Invoke-WebRequest -Uri $ccCleanerUrl -OutFile $ccCleanerPath
+
+    Write-Log "Launching Adobe Creative Cloud Cleaner Tool..." "Info"
+    Start-Process $ccCleanerPath
+}
 $Modules["WingetUpgrade"] = {
     Ensure-WingetInstalled
     Invoke-ExternalCommand -FilePath "winget.exe" -Arguments @(
@@ -867,6 +877,9 @@ Register-Module "IAS" "IAS" "Activates Internet Download Manager (IDM)." $Module
 Register-Module "AdobeGenP" "Adobe CC & GenP" "Downloads Creative Cloud and GenP activator." $Modules["AdobeGenP"] "High" @{
     RequiresNetwork = $true
 }
+Register-Module "AdobeUninstall" "Adobe Uninstall" "Downloads and launches Adobe's official Creative Cloud Cleaner Tool." $Modules["AdobeUninstall"] "Medium" @{
+    RequiresNetwork = $true
+}
 Register-Module "WingetUpgrade" "Winget Upgrade" "Upgrades all installed software via Winget." $Modules["WingetUpgrade"] "Low" @{
     RequiresNetwork = $true
     Verify = { [bool](Get-Command winget -ErrorAction SilentlyContinue) }
@@ -913,6 +926,7 @@ $Col1 = @(
 $Col2 = @(
     @{T = "H"; L = "[ SOFTWARE ]" }
     @{T = "I"; L = "Adobe GenP"; A = "AdobeGenP"; D = "Downloads Creative Cloud and GenP activator." }
+    @{T = "I"; L = "Adobe Uninstall"; A = "AdobeUninstall"; D = "Downloads and launches Adobe's official Creative Cloud Cleaner Tool." }
     @{T = "I"; L = "Winget Upgrade"; A = "WingetUpgrade"; D = "Upgrades all installed software via Winget." }
     @{T = "I"; L = "Spicetify"; A = "Spicetify"; D = "Installs Spicetify for Spotify customization/ad-blocking." }
     @{T = "I"; L = "Legcord"; A = "Legcord"; D = "Installs Legcord (BetterDiscord alternative)." }
