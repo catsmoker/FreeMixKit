@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    FreeMixKit v5.8
+    FreeMixKit v6
     Standalone system utility suite.
 
 .NOTES
@@ -16,7 +16,7 @@ $ScriptUrl = "https://raw.githubusercontent.com/catsmoker/FreeMixKit/main/w.ps1"
 $MSGameBarFixScriptUrl = "https://raw.githubusercontent.com/ajw0/ms-gamebar-fix/refs/heads/main/ms-gamebar-fix.ps1"
 $WinUtilLatestScriptUrl = "https://christitus.com/win"
 $WinUtilLegacyWindows10ScriptUrl = "https://github.com/ChrisTitusTech/winutil/releases/download/25.10.06/Winutil.ps1"
-$AppVersion = "5.8"
+$AppVersion = "6"
 $DataRoot = "C:\\FreeMixKit"
 $DataTemp = Join-Path $DataRoot "temp"
 $DataLogs = Join-Path $DataRoot "logs"
@@ -1005,211 +1005,237 @@ function Move-Selection([string]$Direction, $NavItems, [ref]$SelIdx) {
 # 6. RENDER LOOP
 # ==============================================================================
 
-Clear-Host
-while ($true) {
+function Draw-Box {
+    param([int]$x, [int]$y, [int]$w, [int]$h, [string]$color)
+    $tc = "╔"; $tr = "╗"; $bl = "╚"; $br = "╝"; $hz = "═"; $vt = "║"
+    
+    [Console]::SetCursorPosition($x, $y)
+    Write-Host ($tc + ($hz * ($w - 2)) + $tr) -ForegroundColor $color
+    for ($i = 1; $i -lt $h - 1; $i++) {
+        [Console]::SetCursorPosition($x, $y + $i)
+        Write-Host $vt -ForegroundColor $color -NoNewline
+        Write-Host (" " * ($w - 2)) -NoNewline
+        Write-Host $vt -ForegroundColor $color
+    }
+    [Console]::SetCursorPosition($x, $y + $h - 1)
+    Write-Host ($bl + ($hz * ($w - 2)) + $br) -ForegroundColor $color
+}
+
+function Show-TUI {
     $uiWidth = [Math]::Max(100, $Host.UI.RawUI.WindowSize.Width)
-    $line = "=" * ($uiWidth - 1)
-    $dash = "-" * ($uiWidth - 1)
-    $timeNow = Get-Date -Format "ddd HH:mm:ss"
+    $uiHeight = [Math]::Max(30, $Host.UI.RawUI.WindowSize.Height)
 
-    [Console]::SetCursorPosition(0, 0)
-    Write-Host $line -F Blue
-    Write-Host " FREEMIXKIT v$AppVersion" -NoNewline -F Cyan
-    Write-Host " | $timeNow | ARROWS Navigate | NUMBER + ENTER Run | Q/ESC Exit" -F Gray
-    Write-Host $line -F Blue
-    Write-Host " OS: $($SysInfo.OS) | CPU: $($SysInfo.CPU) | RAM: $($SysInfo.RAM)" -F DarkGray
-    Write-Host $dash -F Blue
-    
-    $startY = 5
-    
-    # RENDER COL 1
-    $y = $startY
-    $x = 2
-    for ($i = 0; $i -lt $Col1.Count; $i++) {
-        [Console]::SetCursorPosition($x, $y)
-        $item = $Col1[$i]
+    # Initial Clear
+    Clear-Host
+    $redrawFull = $true
+
+    while ($true) {
+        if ($redrawFull) {
+            # Draw Outer Framework only once or when needed
+            Draw-Box -x 0 -y 0 -w $uiWidth -h $uiHeight -color "DarkCyan"
+            
+            # Header
+            [Console]::SetCursorPosition(2, 1)
+            Write-Host " FREEMIXKIT v$AppVersion " -NoNewline -ForegroundColor Cyan
+            Write-Host "| OS: $($SysInfo.OS) | CPU: $($SysInfo.CPU) | RAM: $($SysInfo.RAM)".PadRight($uiWidth - 30) -ForegroundColor DarkGray
+            
+            # Separator
+            [Console]::SetCursorPosition(0, 3)
+            Write-Host ("╠" + ("═" * ($uiWidth - 2)) + "╣") -ForegroundColor DarkCyan
+
+            # Footer Separator
+            $footerY = $uiHeight - 8
+            [Console]::SetCursorPosition(0, $footerY)
+            Write-Host ("╠" + ("═" * ($uiWidth - 2)) + "╣") -ForegroundColor DarkCyan
+
+            $redrawFull = $false
+        }
         
-        if ($item.T -eq "H") { 
-            Write-Host $item.L -F DarkGray
-        }
-        else {
-            # Check if selected
-            $isSel = ($NavItems[$SelIdx].C -eq 0 -and $NavItems[$SelIdx].R -eq $i)
-            $navItem = $NavItems | Where-Object { $_.C -eq 0 -and $_.R -eq $i } | Select-Object -First 1
-            $label = "[{0}] {1}" -f $navItem.N, $item.L
-            if ($label.Length -gt 48) { $label = $label.Substring(0, 45) + "..." }
-            if ($isSel) { Write-Host " > $label " -B DarkCyan -F White }
-            else { Write-Host "   $label " -F Green }
-        }
-        $y++
-    }
-
-    # RENDER COL 2
-    $y = $startY
-    $x = 60
-    for ($i = 0; $i -lt $Col2.Count; $i++) {
-        [Console]::SetCursorPosition($x, $y)
-        $item = $Col2[$i]
+        $startY = 5
         
-        if ($item.T -eq "H") { 
-            Write-Host $item.L -F DarkGray
-        }
-        else {
-            # Check if selected
-            $isSel = ($NavItems[$SelIdx].C -eq 1 -and $NavItems[$SelIdx].R -eq $i)
-            $navItem = $NavItems | Where-Object { $_.C -eq 1 -and $_.R -eq $i } | Select-Object -First 1
-            $label = "[{0}] {1}" -f $navItem.N, $item.L
-            if ($label.Length -gt 48) { $label = $label.Substring(0, 45) + "..." }
-            if ($isSel) { Write-Host " > $label " -B DarkCyan -F White }
-            else { Write-Host "   $label " -F Green }
-        }
-        $y++
-    }
-    
-    # Helper Stats area below
-    $maxY = $startY + [Math]::Max($Col1.Count, $Col2.Count) + 1
-    [Console]::SetCursorPosition(0, $maxY)
-    Write-Host $line -F Blue
-
-    $curr = $NavItems[$SelIdx]
-    $currMeta = if ($curr.A -ne "EXIT" -and $ModuleMeta.Contains($curr.A)) { $ModuleMeta[$curr.A] } else { $null }
-    $risk = if ($currMeta) { $currMeta.Risk } else { "N/A" }
-    $riskColor = switch ($risk) {
-        "High" { "Red" }
-        "Medium" { "Yellow" }
-        "Low" { "Green" }
-        default { "DarkGray" }
-    }
-
-    for ($lineIdx = 1; $lineIdx -le 5; $lineIdx++) {
-        [Console]::SetCursorPosition(0, $maxY + $lineIdx)
-        Write-Host (" " * ($uiWidth - 1))
-    }
-
-    [Console]::SetCursorPosition(2, $maxY + 1)
-    $infoText = $curr.D
-    if ($infoText.Length -gt ($uiWidth - 10)) { $infoText = $infoText.Substring(0, $uiWidth - 13) + "..." }
-    Write-Host "$($curr.L): " -NoNewline -F Cyan
-    Write-Host $infoText -F Gray
-    [Console]::SetCursorPosition(2, $maxY + 2)
-    Write-Host "Risk: " -NoNewline -F Gray
-    Write-Host $risk -F $riskColor
-    [Console]::SetCursorPosition(0, $maxY + 4)
-    Write-Host $dash -F Blue
-    [Console]::SetCursorPosition(2, $maxY + 5)
-    Write-Host "Input: $NumberInput" -F Gray
-    [Console]::SetCursorPosition(2, $maxY + 6)
-    Write-Host "Keys: Up/Down/W/S move | Left/Right/A/D switch column | Type number + Enter | Backspace clear | Q or Esc exit" -F DarkGray
-
-    # INPUT HANDLING
-    $k = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-
-    switch ($k.VirtualKeyCode) {
-        {$_ -in 38,87} { Move-Selection "Up" $NavItems ([ref]$SelIdx) }
-        {$_ -in 40,83} { Move-Selection "Down" $NavItems ([ref]$SelIdx) }
-        {$_ -in 39,68} { Move-Selection "Right" $NavItems ([ref]$SelIdx) }
-        {$_ -in 37,65} { Move-Selection "Left" $NavItems ([ref]$SelIdx) }
-        13 {
-            # ENTER
-            if ($NumberInput) {
-                $targetNumber = 0
-                if ([int]::TryParse($NumberInput, [ref]$targetNumber)) {
-                    $target = $NavItems | Where-Object { $_.N -eq $targetNumber } | Select-Object -First 1
-                    if ($target) {
-                        $SelIdx = $NavItems.IndexOf($target)
-                        $curr = $NavItems[$SelIdx]
-                    }
-                    else {
-                        $LastActionLabel = "Number Input"
-                        $LastActionStatus = "Invalid"
-                        $LastActionMessage = "No item matches number $NumberInput."
-                        $NumberInput = ""
-                        continue
-                    }
-                }
-                $NumberInput = ""
+        # RENDER COL 1
+        $y = $startY
+        $x = 4
+        for ($i = 0; $i -lt $Col1.Count; $i++) {
+            [Console]::SetCursorPosition($x, $y)
+            $item = $Col1[$i]
+            
+            if ($item.T -eq "H") { 
+                Write-Host $item.L.PadRight(40) -ForegroundColor DarkGray
             }
+            else {
+                $isSel = ($NavItems[$SelIdx].C -eq 0 -and $NavItems[$SelIdx].R -eq $i)
+                $navItem = $NavItems | Where-Object { $_.C -eq 0 -and $_.R -eq $i } | Select-Object -First 1
+                $label = "[{0}] {1}" -f $navItem.N, $item.L
+                if ($label.Length -gt 45) { $label = $label.Substring(0, 42) + "..." }
+                $label = $label.PadRight(46)
+                if ($isSel) { Write-Host "> $label" -BackgroundColor DarkCyan -ForegroundColor White }
+                else { Write-Host "  $label" -ForegroundColor Green }
+            }
+            $y++
+        }
 
-            $action = $curr.A
-            if ($action -eq "EXIT") {
+        # RENDER COL 2
+        $y = $startY
+        $x = [Math]::Floor($uiWidth / 2) + 2
+        for ($i = 0; $i -lt $Col2.Count; $i++) {
+            [Console]::SetCursorPosition($x, $y)
+            $item = $Col2[$i]
+            
+            if ($item.T -eq "H") { 
+                Write-Host $item.L.PadRight(40) -ForegroundColor DarkGray
+            }
+            else {
+                $isSel = ($NavItems[$SelIdx].C -eq 1 -and $NavItems[$SelIdx].R -eq $i)
+                $navItem = $NavItems | Where-Object { $_.C -eq 1 -and $_.R -eq $i } | Select-Object -First 1
+                $label = "[{0}] {1}" -f $navItem.N, $item.L
+                if ($label.Length -gt 45) { $label = $label.Substring(0, 42) + "..." }
+                $label = $label.PadRight(46)
+                if ($isSel) { Write-Host "> $label" -BackgroundColor DarkCyan -ForegroundColor White }
+                else { Write-Host "  $label" -ForegroundColor Green }
+            }
+            $y++
+        }
+        
+        # Helper Stats area below
+        $footerY = $uiHeight - 7
+        
+        $curr = $NavItems[$SelIdx]
+        $currMeta = if ($curr.A -ne "EXIT" -and $ModuleMeta.Contains($curr.A)) { $ModuleMeta[$curr.A] } else { $null }
+        $risk = if ($currMeta) { $currMeta.Risk } else { "N/A" }
+        $riskColor = switch ($risk) {
+            "High" { "Red" }
+            "Medium" { "Yellow" }
+            "Low" { "Green" }
+            default { "DarkGray" }
+        }
+
+        [Console]::SetCursorPosition(2, $footerY + 1)
+        $infoText = $curr.D
+        if ($infoText.Length -gt ($uiWidth - 25)) { $infoText = $infoText.Substring(0, $uiWidth - 28) + "..." }
+        Write-Host "$($curr.L): ".PadRight(20) -NoNewline -ForegroundColor Cyan
+        Write-Host $infoText.PadRight($uiWidth - 25) -ForegroundColor Gray
+        
+        [Console]::SetCursorPosition(2, $footerY + 2)
+        Write-Host "Risk: ".PadRight(20) -NoNewline -ForegroundColor Gray
+        Write-Host $risk.PadRight(20) -ForegroundColor $riskColor
+        
+        [Console]::SetCursorPosition(2, $footerY + 4)
+        Write-Host "Input: ".PadRight(8) -NoNewline -ForegroundColor Gray
+        Write-Host $NumberInput.PadRight(5) -ForegroundColor White
+        
+        [Console]::SetCursorPosition(2, $footerY + 5)
+        Write-Host "Keys: ".PadRight(8) -NoNewline -ForegroundColor Gray
+        Write-Host "Up/Down/W/S Navigate | Left/Right/A/D Cols | NUMBER+ENTER Run | Q/ESC Quit".PadRight($uiWidth - 15) -ForegroundColor DarkGray
+
+        # INPUT HANDLING
+        $k = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+
+        switch ($k.VirtualKeyCode) {
+            {$_ -in 38,87} { Move-Selection "Up" $NavItems ([ref]$SelIdx) }
+            {$_ -in 40,83} { Move-Selection "Down" $NavItems ([ref]$SelIdx) }
+            {$_ -in 39,68} { Move-Selection "Right" $NavItems ([ref]$SelIdx) }
+            {$_ -in 37,65} { Move-Selection "Left" $NavItems ([ref]$SelIdx) }
+            13 {
+                # ENTER
+                if ($NumberInput) {
+                    $targetNumber = 0
+                    if ([int]::TryParse($NumberInput, [ref]$targetNumber)) {
+                        $target = $NavItems | Where-Object { $_.N -eq $targetNumber } | Select-Object -First 1
+                        if ($target) {
+                            $SelIdx = $NavItems.IndexOf($target)
+                            $curr = $NavItems[$SelIdx]
+                        }
+                        else {
+                            $LastActionLabel = "Number Input"
+                            $LastActionStatus = "Invalid"
+                            $LastActionMessage = "No item matches number $NumberInput."
+                            $NumberInput = ""
+                            continue
+                        }
+                    }
+                    $NumberInput = ""
+                }
+
+                $action = $curr.A
+                if ($action -eq "EXIT") {
+                    Export-SessionResults
+                    Clear-Host
+                    exit
+                }
+                
+                Clear-Host
+                Write-Host "Executing: $($curr.L)..." -ForegroundColor Cyan
+                if ($Modules.Contains($action)) {
+                    try {
+                        $result = Invoke-ModuleAction -ActionKey $action
+                        $status = $result.Status
+                        $message = $result.Message
+                        $duration = $result.Duration
+                        $rollbackHint = $result.RollbackHint
+                        $previousState = $result.PreviousState
+                    }
+                    catch {
+                        $status = "Failed"
+                        $message = $_.Exception.Message
+                        $duration = [timespan]::Zero
+                        $rollbackHint = Get-ModuleMetaValue -ActionKey $action -Name "RollbackHint" -DefaultValue ""
+                        $previousState = ""
+                        Write-Log "Error: $message" "Error"
+                    }
+
+                    Add-ModuleResult -Module $action -Status $status -Message $message -Duration $duration -RollbackHint $rollbackHint -PreviousState $previousState
+                    Write-Log "Result: $status in $([Math]::Round($duration.TotalSeconds, 2))s" $(if ($status -in @("Success", "Canceled")) { "Success" } else { "Error" })
+                    if ($rollbackHint) { Write-Log "Rollback hint: $rollbackHint" "Warn" }
+                    if ($previousState) { Write-Log "Previous state: $previousState" "Info" }
+
+                    $LastActionLabel = $curr.L
+                    $LastActionStatus = $status
+                    $LastActionMessage = $message
+                }
+                
+                Write-Host "`nPress any key to return to menu..." -ForegroundColor Gray
+                $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
+                $redrawFull = $true
+                Clear-Host
+            }
+            8 {
+                if ($NumberInput.Length -gt 0) {
+                    $NumberInput = $NumberInput.Substring(0, $NumberInput.Length - 1)
+                }
+            }
+            48 { if ($NumberInput.Length -lt 2) { $NumberInput += "0" } }
+            49 { if ($NumberInput.Length -lt 2) { $NumberInput += "1" } }
+            50 { if ($NumberInput.Length -lt 2) { $NumberInput += "2" } }
+            51 { if ($NumberInput.Length -lt 2) { $NumberInput += "3" } }
+            52 { if ($NumberInput.Length -lt 2) { $NumberInput += "4" } }
+            53 { if ($NumberInput.Length -lt 2) { $NumberInput += "5" } }
+            54 { if ($NumberInput.Length -lt 2) { $NumberInput += "6" } }
+            55 { if ($NumberInput.Length -lt 2) { $NumberInput += "7" } }
+            56 { if ($NumberInput.Length -lt 2) { $NumberInput += "8" } }
+            57 { if ($NumberInput.Length -lt 2) { $NumberInput += "9" } }
+            96 { if ($NumberInput.Length -lt 2) { $NumberInput += "0" } }
+            97 { if ($NumberInput.Length -lt 2) { $NumberInput += "1" } }
+            98 { if ($NumberInput.Length -lt 2) { $NumberInput += "2" } }
+            99 { if ($NumberInput.Length -lt 2) { $NumberInput += "3" } }
+            100 { if ($NumberInput.Length -lt 2) { $NumberInput += "4" } }
+            101 { if ($NumberInput.Length -lt 2) { $NumberInput += "5" } }
+            102 { if ($NumberInput.Length -lt 2) { $NumberInput += "6" } }
+            103 { if ($NumberInput.Length -lt 2) { $NumberInput += "7" } }
+            104 { if ($NumberInput.Length -lt 2) { $NumberInput += "8" } }
+            105 { if ($NumberInput.Length -lt 2) { $NumberInput += "9" } }
+            81 {
                 Export-SessionResults
                 Clear-Host
                 exit
             }
-            
-            [Console]::SetCursorPosition(2, $maxY + 2)
-            Write-Host "Executing: $($curr.L)..." -F Cyan
-            if ($Modules.Contains($action)) {
-                try {
-                    $result = Invoke-ModuleAction -ActionKey $action
-                    $status = $result.Status
-                    $message = $result.Message
-                    $duration = $result.Duration
-                    $rollbackHint = $result.RollbackHint
-                    $previousState = $result.PreviousState
-                }
-                catch {
-                    $status = "Failed"
-                    $message = $_.Exception.Message
-                    $duration = [timespan]::Zero
-                    $rollbackHint = Get-ModuleMetaValue -ActionKey $action -Name "RollbackHint" -DefaultValue ""
-                    $previousState = ""
-                    Write-Log "Error: $message" "Error"
-                }
-
-                Add-ModuleResult -Module $action -Status $status -Message $message -Duration $duration -RollbackHint $rollbackHint -PreviousState $previousState
-                Write-Log "Result: $status in $([Math]::Round($duration.TotalSeconds, 2))s" $(if ($status -in @("Success", "Canceled")) { "Success" } else { "Error" })
-                if ($rollbackHint) {
-                    Write-Log "Rollback hint: $rollbackHint" "Warn"
-                }
-                if ($previousState) {
-                    Write-Log "Previous state: $previousState" "Info"
-                }
-
-                $LastActionLabel = $curr.L
-                $LastActionStatus = $status
-                $LastActionMessage = $message
+            27 {
+                Export-SessionResults
+                Clear-Host
+                exit
             }
-            
-            [Console]::SetCursorPosition(2, $maxY + 7)
-            Write-Host "Press any key..." -F Gray
-            $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
-            Clear-Host
-        }
-        8 {
-            if ($NumberInput.Length -gt 0) {
-                $NumberInput = $NumberInput.Substring(0, $NumberInput.Length - 1)
-            }
-        }
-        48 { if ($NumberInput.Length -lt 2) { $NumberInput += "0" } }
-        49 { if ($NumberInput.Length -lt 2) { $NumberInput += "1" } }
-        50 { if ($NumberInput.Length -lt 2) { $NumberInput += "2" } }
-        51 { if ($NumberInput.Length -lt 2) { $NumberInput += "3" } }
-        52 { if ($NumberInput.Length -lt 2) { $NumberInput += "4" } }
-        53 { if ($NumberInput.Length -lt 2) { $NumberInput += "5" } }
-        54 { if ($NumberInput.Length -lt 2) { $NumberInput += "6" } }
-        55 { if ($NumberInput.Length -lt 2) { $NumberInput += "7" } }
-        56 { if ($NumberInput.Length -lt 2) { $NumberInput += "8" } }
-        57 { if ($NumberInput.Length -lt 2) { $NumberInput += "9" } }
-        96 { if ($NumberInput.Length -lt 2) { $NumberInput += "0" } }
-        97 { if ($NumberInput.Length -lt 2) { $NumberInput += "1" } }
-        98 { if ($NumberInput.Length -lt 2) { $NumberInput += "2" } }
-        99 { if ($NumberInput.Length -lt 2) { $NumberInput += "3" } }
-        100 { if ($NumberInput.Length -lt 2) { $NumberInput += "4" } }
-        101 { if ($NumberInput.Length -lt 2) { $NumberInput += "5" } }
-        102 { if ($NumberInput.Length -lt 2) { $NumberInput += "6" } }
-        103 { if ($NumberInput.Length -lt 2) { $NumberInput += "7" } }
-        104 { if ($NumberInput.Length -lt 2) { $NumberInput += "8" } }
-        105 { if ($NumberInput.Length -lt 2) { $NumberInput += "9" } }
-        81 {
-            Export-SessionResults
-            Clear-Host
-            exit
-        }
-        27 {
-            Export-SessionResults
-            Clear-Host
-            exit
         }
     }
 }
+
+Show-TUI
