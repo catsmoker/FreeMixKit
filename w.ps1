@@ -1,12 +1,22 @@
 <#
 .SYNOPSIS
-    FreeMixKit v6
     Standalone system utility suite.
 
 .NOTES
     Author: catsmoker
     Privileges: Administrator Required
 #>
+
+trap {
+    try { [Console]::ResetColor() } catch { }
+    Write-Host ""
+    Write-Host "FreeMixKit crashed." -ForegroundColor Red
+    Write-Host $_.Exception.Message -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "Press ENTER to close..." -ForegroundColor Gray
+    Read-Host | Out-Null
+    Exit 1
+}
 
 # ==============================================================================
 # 1. SETUP & ADMIN CHECK
@@ -16,7 +26,7 @@ $ScriptUrl = "https://raw.githubusercontent.com/catsmoker/FreeMixKit/main/w.ps1"
 $MSGameBarFixScriptUrl = "https://raw.githubusercontent.com/ajw0/ms-gamebar-fix/refs/heads/main/ms-gamebar-fix.ps1"
 $WinUtilLatestScriptUrl = "https://christitus.com/win"
 $WinUtilLegacyWindows10ScriptUrl = "https://github.com/ChrisTitusTech/winutil/releases/download/25.10.06/Winutil.ps1"
-$AppVersion = "6"
+$AppVersion = "7"
 $DataRoot = "C:\\FreeMixKit"
 $DataTemp = Join-Path $DataRoot "temp"
 $DataLogs = Join-Path $DataRoot "logs"
@@ -53,8 +63,18 @@ if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Adm
         "-NoProfile -ExecutionPolicy Bypass -Command `"irm $ScriptUrl | iex`""
     }
 
-    Start-Process $shellExe -ArgumentList $argumentList -Verb RunAs
-    Exit
+    try {
+        Start-Process $shellExe -ArgumentList $argumentList -Verb RunAs -ErrorAction Stop | Out-Null
+        Exit
+    }
+    catch {
+        Write-Host "Administrator rights are required to run FreeMixKit." -ForegroundColor Red
+        Write-Host "Elevation was canceled or failed: $($_.Exception.Message)" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "Press ENTER to close..." -ForegroundColor Gray
+        Read-Host | Out-Null
+        Exit 1
+    }
 }
 
 [Console]::BackgroundColor = "Black"
@@ -743,6 +763,90 @@ Read-Host
 
 }
 
+$Modules["SpotX"] = {
+    $taskName = "FreeMixKit_SpotX_User"
+    $currentUser = $env:USERNAME
+    $spotxScript = Join-Path $DataTemp "Run-SpotX.ps1"
+
+    $scriptContent = @'
+Write-Host "=== SpotX Installer ===" -ForegroundColor Cyan
+try {
+    iex "& { $(iwr -useb 'https://raw.githubusercontent.com/SpotX-Official/SpotX/refs/heads/main/run.ps1') } -confirm_uninstall_ms_spoti -confirm_spoti_recomended_over -podcasts_off -block_update_on -start_spoti -new_theme -adsections_off -lyrics_stat spotify"
+}
+catch {
+    Write-Host "SpotX failed: $($_.Exception.Message)" -ForegroundColor Red
+    throw
+}
+Write-Host "Press ENTER to close..."
+Read-Host
+'@
+
+    Set-Content -Path $spotxScript -Value $scriptContent -Force
+
+    Write-Log "Launching SpotX as user: $currentUser..." "Info"
+
+    $action = New-ScheduledTaskAction `
+        -Execute "powershell.exe" `
+        -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$spotxScript`""
+
+    $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddSeconds(2)
+    $principal = New-ScheduledTaskPrincipal -UserId $currentUser -LogonType Interactive -RunLevel Limited
+
+    try {
+        Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+        Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
+        Start-ScheduledTask -TaskName $taskName
+
+        Write-Log "SpotX launched successfully." "Success"
+    }
+    catch {
+        Write-Log "Failed to launch SpotX: $($_.Exception.Message)" "Error"
+        throw
+    }
+}
+
+$Modules["Winhance"] = {
+    $taskName = "FreeMixKit_Winhance_User"
+    $currentUser = $env:USERNAME
+    $winhanceScript = Join-Path $DataTemp "Run-Winhance.ps1"
+
+    $scriptContent = @'
+Write-Host "=== Winhance Launcher ===" -ForegroundColor Cyan
+try {
+    irm "https://get.winhance.net" | iex
+}
+catch {
+    Write-Host "Winhance failed: $($_.Exception.Message)" -ForegroundColor Red
+    throw
+}
+Write-Host "Press ENTER to close..."
+Read-Host
+'@
+
+    Set-Content -Path $winhanceScript -Value $scriptContent -Force
+
+    Write-Log "Launching Winhance as user: $currentUser..." "Info"
+
+    $action = New-ScheduledTaskAction `
+        -Execute "powershell.exe" `
+        -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$winhanceScript`""
+
+    $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddSeconds(2)
+    $principal = New-ScheduledTaskPrincipal -UserId $currentUser -LogonType Interactive -RunLevel Limited
+
+    try {
+        Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+        Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
+        Start-ScheduledTask -TaskName $taskName
+
+        Write-Log "Winhance launched successfully." "Success"
+    }
+    catch {
+        Write-Log "Failed to launch Winhance: $($_.Exception.Message)" "Error"
+        throw
+    }
+}
+
 $Modules["Legcord"] = {
     try { 
         $u = ((Invoke-RestMethod "https://api.github.com/repos/Legcord/Legcord/releases/latest").assets | Where-Object name -match ".exe" | Select-Object -First 1).browser_download_url
@@ -872,8 +976,8 @@ Register-Module "MalwareScan" "Malware Scan" "Runs MRT, then downloads and runs 
     RequiresNetwork = $true
 }
 Register-Module "SystemReport" "System Report" "Generates a text file with system specs on your desktop." $Modules["SystemReport"] "Low"
-Register-Module "MAS" "MAS" "Runs MAS (Microsoft Activation Scripts) to activate Windows." $Modules["MAS"] "High"
-Register-Module "IAS" "IAS" "Activates Internet Download Manager (IDM)." $Modules["IAS"] "High"
+Register-Module "MAS" "Activate Windows & Office" "Runs MAS (Microsoft Activation Scripts) to activate Windows and Office." $Modules["MAS"] "High"
+Register-Module "IAS" "Activate IDM" "Activates Internet Download Manager (IDM)." $Modules["IAS"] "High"
 Register-Module "AdobeGenP" "Adobe CC & GenP" "Downloads Creative Cloud and GenP activator." $Modules["AdobeGenP"] "High" @{
     RequiresNetwork = $true
 }
@@ -885,6 +989,12 @@ Register-Module "WingetUpgrade" "Winget Upgrade" "Upgrades all installed softwar
     Verify = { [bool](Get-Command winget -ErrorAction SilentlyContinue) }
 }
 Register-Module "Spicetify" "Spicetify" "Installs Spicetify for Spotify customization/ad-blocking." $Modules["Spicetify"] "Medium" @{
+    RequiresNetwork = $true
+}
+Register-Module "SpotX" "SpotX" "Runs the SpotX Spotify patcher with the preset flags configured by FreeMixKit." $Modules["SpotX"] "Medium" @{
+    RequiresNetwork = $true
+}
+Register-Module "Winhance" "Winhance" "Launches the Winhance bootstrap script from get.winhance.net." $Modules["Winhance"] "Medium" @{
     RequiresNetwork = $true
 }
 Register-Module "Legcord" "Legcord" "Installs Legcord (BetterDiscord alternative)." $Modules["Legcord"] "Low" @{
@@ -907,32 +1017,20 @@ Register-Module "AddShortcut" "Add Shortcut" "Creates a shortcut for this script
 # 5. GRID MENU CONFIGURATION
 # ==============================================================================
 
-# Define Columns. Type: H=Header, I=Item
+# Define Columns. Type: H=Header, S=Subgroup, I=Item
 $Col1 = @(
-    @{T = "H"; L = "[ DEVELOPER ]" }
+    @{T = "H"; L = "[ SYSTEM ]" }
+    @{T = "S"; L = "  Developer Setup" }
     @{T = "I"; L = "DEV CHOICE"; A = "DevChoice"; D = "Installs: VS Redists, .NET, Node.js, Python, Java, PowerShell, Git, FFmpeg, nanazip, Notepad++, File Converter, Bibata Cursor." }
     @{T = "H"; L = "" }
-    @{T = "H"; L = "[ MAINTENANCE ]" }
+    @{T = "S"; L = "  Cleanup & Repair" }
     @{T = "I"; L = "Clean System Junk"; A = "CleanSystem"; D = "Removes temp files, prefetch, and clears DNS cache." }
     @{T = "I"; L = "System Repair"; A = "SystemRepair"; D = "Runs SFC Scannow and DISM RestoreHealth." }
     @{T = "I"; L = "Malware Scan"; A = "MalwareScan"; D = "Runs MRT, then downloads and runs Kaspersky Virus Removal Tool (KVRT)." }
     @{T = "I"; L = "System Report"; A = "SystemReport"; D = "Generates a text file with system specs on your desktop." }
     @{T = "H"; L = "" }
-    @{T = "H"; L = "[ ACTIVATION ]" }
-    @{T = "I"; L = "MAS"; A = "MAS"; D = "Runs MAS (Microsoft Activation Scripts) to activate Windows." }
-    @{T = "I"; L = "IAS"; A = "IAS"; D = "Activates Internet Download Manager (IDM)." }
-)
-
-$Col2 = @(
-    @{T = "H"; L = "[ SOFTWARE ]" }
-    @{T = "I"; L = "Adobe GenP"; A = "AdobeGenP"; D = "Downloads Creative Cloud and GenP activator." }
-    @{T = "I"; L = "Adobe Uninstall"; A = "AdobeUninstall"; D = "Downloads and launches Adobe's official Creative Cloud Cleaner Tool." }
-    @{T = "I"; L = "Winget Upgrade"; A = "WingetUpgrade"; D = "Upgrades all installed software via Winget." }
-    @{T = "I"; L = "Spicetify"; A = "Spicetify"; D = "Installs Spicetify for Spotify customization/ad-blocking." }
-    @{T = "I"; L = "Legcord"; A = "Legcord"; D = "Installs Legcord (BetterDiscord alternative)." }
-    @{T = "H"; L = "" }
     @{T = "H"; L = "[ UTILITIES ]" }
-    @{T = "I"; L = "WinUtil"; A = "WinUtil"; D = "Launches Chris Titus Tech's Windows Utility." }
+    @{T = "S"; L = "  Fixes" }
     @{T = "I"; L = "Fix Resolution"; A = "FixResolution"; D = "Uses CRU to restart graphics driver and fix resolution." }
     @{T = "I"; L = "ms-gamebar-fix"; A = "MSGameBarFix"; D = "Downloads and runs the Game Bar popup fixer from ajw0/ms-gamebar-fix." }
     @{T = "H"; L = "" }
@@ -943,6 +1041,32 @@ $Col2 = @(
     @{T = "H"; L = "[ EXIT ]" }
     @{T = "I"; L = "Add Shortcut"; A = "AddShortcut"; D = "Creates a shortcut for this script on the Desktop." }
     @{T = "I"; L = "Exit Application"; A = "EXIT"; D = "Closes the application." }
+)
+
+$Col2 = @(
+    @{T = "H"; L = "[ SOFTWARE ]" }
+    @{T = "S"; L = "  Adobe" }
+    @{T = "I"; L = "Adobe GenP"; A = "AdobeGenP"; D = "Downloads Creative Cloud and GenP activator." }
+    @{T = "I"; L = "Adobe Uninstall"; A = "AdobeUninstall"; D = "Downloads and launches Adobe's official Creative Cloud Cleaner Tool." }
+    @{T = "H"; L = "" }
+    @{T = "S"; L = "  Spotify" }
+    @{T = "I"; L = "Spicetify"; A = "Spicetify"; D = "Installs Spicetify for Spotify customization/ad-blocking." }
+    @{T = "I"; L = "SpotX"; A = "SpotX"; D = "Runs the SpotX Spotify patcher with the preset flags configured by FreeMixKit." }
+    @{T = "H"; L = "" }
+    @{T = "S"; L = "  Windows Tweaks" }
+    @{T = "I"; L = "Winhance"; A = "Winhance"; D = "Launches the Winhance bootstrap script from get.winhance.net." }
+    @{T = "I"; L = "WinUtil"; A = "WinUtil"; D = "Launches Chris Titus Tech's Windows Utility." }
+    @{T = "I"; L = "Winget Upgrade"; A = "WingetUpgrade"; D = "Upgrades all installed software via Winget." }
+    @{T = "H"; L = "" }
+    @{T = "S"; L = "  Discord" }
+    @{T = "I"; L = "Legcord"; A = "Legcord"; D = "Installs Legcord (BetterDiscord alternative)." }
+    @{T = "H"; L = "" }
+    @{T = "H"; L = "[ ACTIVATION ]" }
+    @{T = "S"; L = "  Microsoft" }
+    @{T = "I"; L = "Activate Windows & Office"; A = "MAS"; D = "Runs MAS (Microsoft Activation Scripts) to activate Windows and Office." }
+    @{T = "S"; L = "  Other" }
+    @{T = "I"; L = "Activate IDM"; A = "IAS"; D = "Activates Internet Download Manager (IDM)." }
+    @{T = "H"; L = "" }
 )
 
 # Sync menu labels/descriptions from module metadata.
@@ -1007,7 +1131,12 @@ function Move-Selection([string]$Direction, $NavItems, [ref]$SelIdx) {
 
 function Draw-Box {
     param([int]$x, [int]$y, [int]$w, [int]$h, [string]$color)
-    $tc = "╔"; $tr = "╗"; $bl = "╚"; $br = "╝"; $hz = "═"; $vt = "║"
+    $tc = [string][char]0x2554
+    $tr = [string][char]0x2557
+    $bl = [string][char]0x255A
+    $br = [string][char]0x255D
+    $hz = [string][char]0x2550
+    $vt = [string][char]0x2551
     
     [Console]::SetCursorPosition($x, $y)
     Write-Host ($tc + ($hz * ($w - 2)) + $tr) -ForegroundColor $color
@@ -1024,6 +1153,18 @@ function Draw-Box {
 function Show-TUI {
     $uiWidth = [Math]::Max(100, $Host.UI.RawUI.WindowSize.Width)
     $uiHeight = [Math]::Max(30, $Host.UI.RawUI.WindowSize.Height)
+    $sepLeft = [string][char]0x2560
+    $sepFill = [string][char]0x2550
+    $sepRight = [string][char]0x2563
+    $contentLeft = 4
+    $contentRight = 4
+    $columnGap = 4
+    $columnWidth = [Math]::Floor(($uiWidth - $contentLeft - $contentRight - $columnGap) / 2)
+    $columnWidth = [Math]::Max(36, $columnWidth)
+    $col1X = $contentLeft
+    $col2X = $contentLeft + $columnWidth + $columnGap
+    $headingWidth = [Math]::Max(20, $columnWidth - 2)
+    $itemTextWidth = [Math]::Max(16, $columnWidth - 4)
 
     # Initial Clear
     Clear-Host
@@ -1041,12 +1182,12 @@ function Show-TUI {
             
             # Separator
             [Console]::SetCursorPosition(0, 3)
-            Write-Host ("╠" + ("═" * ($uiWidth - 2)) + "╣") -ForegroundColor DarkCyan
+            Write-Host ($sepLeft + ($sepFill * ($uiWidth - 2)) + $sepRight) -ForegroundColor DarkCyan
 
             # Footer Separator
             $footerY = $uiHeight - 8
             [Console]::SetCursorPosition(0, $footerY)
-            Write-Host ("╠" + ("═" * ($uiWidth - 2)) + "╣") -ForegroundColor DarkCyan
+            Write-Host ($sepLeft + ($sepFill * ($uiWidth - 2)) + $sepRight) -ForegroundColor DarkCyan
 
             $redrawFull = $false
         }
@@ -1055,20 +1196,23 @@ function Show-TUI {
         
         # RENDER COL 1
         $y = $startY
-        $x = 4
+        $x = $col1X
         for ($i = 0; $i -lt $Col1.Count; $i++) {
             [Console]::SetCursorPosition($x, $y)
             $item = $Col1[$i]
             
             if ($item.T -eq "H") { 
-                Write-Host $item.L.PadRight(40) -ForegroundColor DarkGray
+                Write-Host $item.L.PadRight($headingWidth) -ForegroundColor DarkGray
+            }
+            elseif ($item.T -eq "S") {
+                Write-Host $item.L.PadRight($headingWidth) -ForegroundColor Cyan
             }
             else {
                 $isSel = ($NavItems[$SelIdx].C -eq 0 -and $NavItems[$SelIdx].R -eq $i)
                 $navItem = $NavItems | Where-Object { $_.C -eq 0 -and $_.R -eq $i } | Select-Object -First 1
                 $label = "[{0}] {1}" -f $navItem.N, $item.L
-                if ($label.Length -gt 45) { $label = $label.Substring(0, 42) + "..." }
-                $label = $label.PadRight(46)
+                if ($label.Length -gt $itemTextWidth) { $label = $label.Substring(0, $itemTextWidth - 3) + "..." }
+                $label = $label.PadRight($itemTextWidth)
                 if ($isSel) { Write-Host "> $label" -BackgroundColor DarkCyan -ForegroundColor White }
                 else { Write-Host "  $label" -ForegroundColor Green }
             }
@@ -1077,20 +1221,23 @@ function Show-TUI {
 
         # RENDER COL 2
         $y = $startY
-        $x = [Math]::Floor($uiWidth / 2) + 2
+        $x = $col2X
         for ($i = 0; $i -lt $Col2.Count; $i++) {
             [Console]::SetCursorPosition($x, $y)
             $item = $Col2[$i]
             
             if ($item.T -eq "H") { 
-                Write-Host $item.L.PadRight(40) -ForegroundColor DarkGray
+                Write-Host $item.L.PadRight($headingWidth) -ForegroundColor DarkGray
+            }
+            elseif ($item.T -eq "S") {
+                Write-Host $item.L.PadRight($headingWidth) -ForegroundColor Cyan
             }
             else {
                 $isSel = ($NavItems[$SelIdx].C -eq 1 -and $NavItems[$SelIdx].R -eq $i)
                 $navItem = $NavItems | Where-Object { $_.C -eq 1 -and $_.R -eq $i } | Select-Object -First 1
                 $label = "[{0}] {1}" -f $navItem.N, $item.L
-                if ($label.Length -gt 45) { $label = $label.Substring(0, 42) + "..." }
-                $label = $label.PadRight(46)
+                if ($label.Length -gt $itemTextWidth) { $label = $label.Substring(0, $itemTextWidth - 3) + "..." }
+                $label = $label.PadRight($itemTextWidth)
                 if ($isSel) { Write-Host "> $label" -BackgroundColor DarkCyan -ForegroundColor White }
                 else { Write-Host "  $label" -ForegroundColor Green }
             }
@@ -1238,4 +1385,16 @@ function Show-TUI {
     }
 }
 
-Show-TUI
+try {
+    Show-TUI
+}
+catch {
+    try { [Console]::ResetColor() } catch { }
+    Write-Host ""
+    Write-Host "FreeMixKit crashed." -ForegroundColor Red
+    Write-Host $_.Exception.Message -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "Press ENTER to close..." -ForegroundColor Gray
+    Read-Host | Out-Null
+    Exit 1
+}
