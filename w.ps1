@@ -524,7 +524,7 @@ $Modules["AdobeGenP"] = {
     
     # --- GenP Automation (Multi-Source Dynamic) ---
     $guideUrl = "https://wiki.dbzer0.com/genp-guides/guide/"
-    $internxtUrl = "https://secure.eu.internxt.com/sh/file/stTZF_YkQUS7s_7pc6x50g/e0_-sPyi"
+    $internxtUrl = "https://wiki.dbzer0.com/genp-guides/guide/#download-directory"
     
     # 1. Official Guide Version (Source of Truth)
     Write-Log "Checking official GenP guide for latest recommended version..." "Info"
