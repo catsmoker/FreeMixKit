@@ -164,6 +164,66 @@ function Install-WingetPackage([string]$Id) {
     ) | Out-Null
 }
 
+function Get-InstalledExecutablePath {
+    param(
+        [Parameter(Mandatory = $true)][string[]]$ExecutableNames,
+        [Parameter()][string[]]$CandidatePaths = @()
+    )
+
+    foreach ($path in $CandidatePaths | Where-Object { $_ }) {
+        if (Test-Path $path) { return $path }
+    }
+
+    foreach ($name in $ExecutableNames | Where-Object { $_ }) {
+        $command = Get-Command $name -ErrorAction SilentlyContinue
+        if ($command -and $command.Source -and (Test-Path $command.Source)) {
+            return $command.Source
+        }
+    }
+
+    $searchRoots = @()
+    if ($env:LOCALAPPDATA) {
+        $searchRoots += Join-Path $env:LOCALAPPDATA "Microsoft\\WinGet\\Packages"
+        $searchRoots += Join-Path $env:LOCALAPPDATA "Programs"
+    }
+    if ($env:ProgramFiles) {
+        $searchRoots += Join-Path $env:ProgramFiles "WinGet\\Packages"
+        $searchRoots += $env:ProgramFiles
+    }
+    if (${env:ProgramFiles(x86)}) {
+        $searchRoots += ${env:ProgramFiles(x86)}
+    }
+    $searchRoots = $searchRoots | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
+
+    foreach ($root in $searchRoots) {
+        foreach ($name in $ExecutableNames | Where-Object { $_ }) {
+            $match = Get-ChildItem -Path $root -Filter $name -File -Recurse -ErrorAction SilentlyContinue |
+                Select-Object -First 1
+            if ($match) { return $match.FullName }
+        }
+    }
+
+    return $null
+}
+
+function Install-And-LaunchWingetPackage {
+    param(
+        [Parameter(Mandatory = $true)][string]$Id,
+        [Parameter(Mandatory = $true)][string[]]$ExecutableNames,
+        [Parameter()][string[]]$CandidatePaths = @()
+    )
+
+    Install-WingetPackage -Id $Id
+
+    $exePath = Get-InstalledExecutablePath -ExecutableNames $ExecutableNames -CandidatePaths $CandidatePaths
+    if (-not $exePath) {
+        throw "Installed package '$Id', but could not locate executable: $($ExecutableNames -join ', ')"
+    }
+
+    Write-Log "Launching $exePath" "Info"
+    Start-Process -FilePath $exePath
+}
+
 function Test-NetworkConnectivity {
     try {
         return [bool](Test-Connection -ComputerName "1.1.1.1" -Count 1 -Quiet -ErrorAction Stop)
@@ -218,15 +278,21 @@ function Invoke-ExternalCommand {
 
     $proc = Start-Process -FilePath $FilePath -ArgumentList $Arguments -PassThru -NoNewWindow
     Wait-Process -Id $proc.Id -ErrorAction SilentlyContinue
+    try { $proc.Refresh() } catch { }
 
-    if ($proc.ExitCode -ne 0) {
-        throw "Command failed (exit $($proc.ExitCode)): $FilePath $($Arguments -join ' ')"
+    $exitCode = $proc.ExitCode
+    if ($null -eq $exitCode -or $exitCode -eq "") {
+        $exitCode = 0
+    }
+
+    if ($exitCode -ne 0) {
+        throw "Command failed (exit $exitCode): $FilePath $($Arguments -join ' ')"
     }
 
     return [pscustomobject]@{
         FilePath = $FilePath
         Arguments = ($Arguments -join " ")
-        ExitCode = $proc.ExitCode
+        ExitCode = $exitCode
     }
 }
 
@@ -933,6 +999,19 @@ $Modules["MSGameBarFix"] = {
         "-File", ('"{0}"' -f $localScriptPath)
     ) -Wait
 }
+$Modules["MemReduct"] = {
+    $candidatePaths = @()
+    if ($env:ProgramFiles) {
+        $candidatePaths += Join-Path $env:ProgramFiles "Mem Reduct\\memreduct.exe"
+    }
+    if (${env:ProgramFiles(x86)}) {
+        $candidatePaths += Join-Path ${env:ProgramFiles(x86)} "Mem Reduct\\memreduct.exe"
+    }
+    Install-And-LaunchWingetPackage -Id "Henry++.MemReduct" -ExecutableNames @("memreduct.exe") -CandidatePaths $candidatePaths
+}
+$Modules["WinMemoryCleaner"] = {
+    Install-And-LaunchWingetPackage -Id "IgorMundstein.WinMemoryCleaner" -ExecutableNames @("WinMemoryCleaner.exe")
+}
 $Modules["OpenGitHub"] = { Start-Process "https://github.com/catsmoker/FreeMixKit" }
 $Modules["OpenWebsite"] = { Start-Process "https://catsmoker.vercel.app/" }
 
@@ -1009,6 +1088,14 @@ Register-Module "FixResolution" "Fix Resolution" "Uses CRU to restart graphics d
 Register-Module "MSGameBarFix" "ms-gamebar-fix" "Downloads and runs the Game Bar popup fixer from ajw0/ms-gamebar-fix." $Modules["MSGameBarFix"] "Medium" @{
     RequiresNetwork = $true
 }
+Register-Module "MemReduct" "Mem Reduct" "Installs Mem Reduct with Winget, then launches it." $Modules["MemReduct"] "Low" @{
+    RequiresNetwork = $true
+    Verify = { Test-WingetPackageInstalled -Id "Henry++.MemReduct" }
+}
+Register-Module "WinMemoryCleaner" "WinMemoryCleaner" "Installs WinMemoryCleaner with Winget, then launches it." $Modules["WinMemoryCleaner"] "Low" @{
+    RequiresNetwork = $true
+    Verify = { Test-WingetPackageInstalled -Id "IgorMundstein.WinMemoryCleaner" }
+}
 Register-Module "OpenGitHub" "GitHub Repository" "Opens the FreeMixKit GitHub page in your browser." $Modules["OpenGitHub"] "Low"
 Register-Module "OpenWebsite" "Website" "Opens the author's website in your browser." $Modules["OpenWebsite"] "Low"
 Register-Module "AddShortcut" "Add Shortcut" "Creates a shortcut for this script on the Desktop." $Modules["AddShortcut"] "Low"
@@ -1034,13 +1121,17 @@ $Col1 = @(
     @{T = "I"; L = "Fix Resolution"; A = "FixResolution"; D = "Uses CRU to restart graphics driver and fix resolution." }
     @{T = "I"; L = "ms-gamebar-fix"; A = "MSGameBarFix"; D = "Downloads and runs the Game Bar popup fixer from ajw0/ms-gamebar-fix." }
     @{T = "H"; L = "" }
+    @{T = "S"; L = "  Memory Control" }
+    @{T = "I"; L = "Mem Reduct"; A = "MemReduct"; D = "Installs Mem Reduct with Winget, then launches it." }
+    @{T = "I"; L = "WinMemoryCleaner"; A = "WinMemoryCleaner"; D = "Installs WinMemoryCleaner with Winget, then launches it." }
+    @{T = "H"; L = "" }
     @{T = "H"; L = "[ LINKS ]" }
     @{T = "I"; L = "GitHub Repository"; A = "OpenGitHub"; D = "Open the FreeMixKit GitHub page." }
     @{T = "I"; L = "Website"; A = "OpenWebsite"; D = "Open catsmoker's website." }
     @{T = "H"; L = "" }
-    @{T = "H"; L = "[ EXIT ]" }
-    @{T = "I"; L = "Add Shortcut"; A = "AddShortcut"; D = "Creates a shortcut for this script on the Desktop." }
-    @{T = "I"; L = "Exit Application"; A = "EXIT"; D = "Closes the application." }
+    @{T = "H"; L = "[ EXIT ]"; Special = "Exit" }
+    @{T = "I"; L = "Add Shortcut"; A = "AddShortcut"; D = "Creates a shortcut for this script on the Desktop."; Special = "Exit"; Code = "01" }
+    @{T = "I"; L = "Exit Application"; A = "EXIT"; D = "Closes the application."; Special = "Exit"; Code = "00" }
 )
 
 $Col2 = @(
@@ -1094,6 +1185,8 @@ for ($i = 0; $i -lt $Col2.Count; $i++) {
 
 for ($i = 0; $i -lt $NavItems.Count; $i++) {
     $NavItems[$i]["N"] = $i + 1
+    $sourceItem = if ($NavItems[$i].C -eq 0) { $Col1[$NavItems[$i].R] } else { $Col2[$NavItems[$i].R] }
+    $NavItems[$i]["Code"] = if ($sourceItem.Contains("Code")) { [string]$sourceItem.Code } else { [string]($i + 1) }
 }
 
 $SelIdx = 0 # Index in $NavItems
@@ -1201,8 +1294,9 @@ function Show-TUI {
             [Console]::SetCursorPosition($x, $y)
             $item = $Col1[$i]
             
-            if ($item.T -eq "H") { 
-                Write-Host $item.L.PadRight($headingWidth) -ForegroundColor DarkGray
+            if ($item.T -eq "H") {
+                $headerColor = if ($item.Contains("Special") -and $item.Special -eq "Exit") { "Red" } else { "DarkGray" }
+                Write-Host $item.L.PadRight($headingWidth) -ForegroundColor $headerColor
             }
             elseif ($item.T -eq "S") {
                 Write-Host $item.L.PadRight($headingWidth) -ForegroundColor Cyan
@@ -1210,11 +1304,18 @@ function Show-TUI {
             else {
                 $isSel = ($NavItems[$SelIdx].C -eq 0 -and $NavItems[$SelIdx].R -eq $i)
                 $navItem = $NavItems | Where-Object { $_.C -eq 0 -and $_.R -eq $i } | Select-Object -First 1
-                $label = "[{0}] {1}" -f $navItem.N, $item.L
+                $label = "[{0}] {1}" -f $navItem.Code, $item.L
                 if ($label.Length -gt $itemTextWidth) { $label = $label.Substring(0, $itemTextWidth - 3) + "..." }
                 $label = $label.PadRight($itemTextWidth)
-                if ($isSel) { Write-Host "> $label" -BackgroundColor DarkCyan -ForegroundColor White }
-                else { Write-Host "  $label" -ForegroundColor Green }
+                $isExitItem = ($item.Contains("Special") -and $item.Special -eq "Exit")
+                if ($isSel) {
+                    if ($isExitItem) { Write-Host "> $label" -BackgroundColor DarkRed -ForegroundColor White }
+                    else { Write-Host "> $label" -BackgroundColor DarkCyan -ForegroundColor White }
+                }
+                else {
+                    if ($isExitItem) { Write-Host "  $label" -ForegroundColor Red }
+                    else { Write-Host "  $label" -ForegroundColor Green }
+                }
             }
             $y++
         }
@@ -1235,7 +1336,7 @@ function Show-TUI {
             else {
                 $isSel = ($NavItems[$SelIdx].C -eq 1 -and $NavItems[$SelIdx].R -eq $i)
                 $navItem = $NavItems | Where-Object { $_.C -eq 1 -and $_.R -eq $i } | Select-Object -First 1
-                $label = "[{0}] {1}" -f $navItem.N, $item.L
+                $label = "[{0}] {1}" -f $navItem.Code, $item.L
                 if ($label.Length -gt $itemTextWidth) { $label = $label.Substring(0, $itemTextWidth - 3) + "..." }
                 $label = $label.PadRight($itemTextWidth)
                 if ($isSel) { Write-Host "> $label" -BackgroundColor DarkCyan -ForegroundColor White }
@@ -1286,20 +1387,24 @@ function Show-TUI {
             13 {
                 # ENTER
                 if ($NumberInput) {
-                    $targetNumber = 0
-                    if ([int]::TryParse($NumberInput, [ref]$targetNumber)) {
-                        $target = $NavItems | Where-Object { $_.N -eq $targetNumber } | Select-Object -First 1
-                        if ($target) {
-                            $SelIdx = $NavItems.IndexOf($target)
-                            $curr = $NavItems[$SelIdx]
+                    $target = $NavItems | Where-Object { $_.Code -eq $NumberInput } | Select-Object -First 1
+                    if (-not $target) {
+                        $targetNumber = 0
+                        if ([int]::TryParse($NumberInput, [ref]$targetNumber)) {
+                            $target = $NavItems | Where-Object { $_.N -eq $targetNumber } | Select-Object -First 1
                         }
-                        else {
-                            $LastActionLabel = "Number Input"
-                            $LastActionStatus = "Invalid"
-                            $LastActionMessage = "No item matches number $NumberInput."
-                            $NumberInput = ""
-                            continue
-                        }
+                    }
+
+                    if ($target) {
+                        $SelIdx = $NavItems.IndexOf($target)
+                        $curr = $NavItems[$SelIdx]
+                    }
+                    else {
+                        $LastActionLabel = "Number Input"
+                        $LastActionStatus = "Invalid"
+                        $LastActionMessage = "No item matches number $NumberInput."
+                        $NumberInput = ""
+                        continue
                     }
                     $NumberInput = ""
                 }
