@@ -612,7 +612,15 @@ $Modules["AdobeGenP"] = {
         return
     }
 
-    # 2. Search Sources for matching version
+    # 2. Choice: Automated vs Manual
+    Write-Host ""
+    if (-not (Confirm-Action "Would you like to attempt an automated download from community mirrors (GitHub)?`n(Selecting 'N' will open the official guide for manual download instead)")) {
+        Write-Log "Opening official guide for manual download..." "Info"
+        Start-Process $internxtUrl
+        return
+    }
+
+    # 3. Search Sources for matching version
     $sources = @(
         @{ Name = "catsmoker (Primary)"; Api = "https://api.github.com/repos/catsmoker/FreeMixKit/contents/"; Type = "Contents" },
         @{ Name = "Mojszli"; Api = "https://api.github.com/repos/Mojszli/GenP/releases/tags/tag1"; Type = "Release" },
@@ -662,9 +670,9 @@ $Modules["AdobeGenP"] = {
         }
     }
 
-    # 3. Download and Run
+    # 4. Download and Run
     if ($downloadUrl) {
-        $genpPath = Join-Path $PSScriptRoot $foundFileName
+        $genpPath = Join-Path $DataDownloads $foundFileName
         if (-not (Test-Path $genpPath)) {
             Write-Log "Downloading $foundFileName..." "Info"
             Invoke-WebRequest -Uri $downloadUrl -OutFile $genpPath
