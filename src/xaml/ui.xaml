@@ -1,0 +1,635 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="FreeMixKit"
+        Height="800" Width="1180"
+        MinHeight="600" MinWidth="920"
+        WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource FmkBg}"
+        Foreground="{DynamicResource FmkFg}"
+        FontFamily="Arial"
+        FontSize="12"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
+        TextOptions.TextFormattingMode="Display">
+
+  <Window.Resources>
+
+    <!-- ====================================================================
+         Palette. The percent-wrapped placeholders in the Color values below
+         are replaced with hex values by Get-FmkThemedXaml
+         (src/theme/theme.ps1) just before this XAML is parsed, so the window
+         is born with its final colors.
+
+         Write that placeholder pattern nowhere else in this file, not even in
+         a comment: both the build check in Compile.ps1 and the runtime check in
+         Get-FmkThemedXaml scan the raw text, so a stray example in prose reads
+         as an undefined palette key.
+
+         Do not go back to applying the palette by writing into
+         Window.Resources after Parse. Two separate things make that fail:
+           * Writing a brush under a key that a live {DynamicResource} points
+             at makes WPF synchronously re-resolve that reference, and the
+             re-resolution throws
+                 '#FF1B1B1F' is not a valid value for property 'Background'
+             for the Window's own Background/Foreground. Writing a key that
+             nothing references is fine, so it is the invalidation, not the
+             value being written.
+           * Mutating the existing brush's Color instead does not avoid it
+             either: a brush is frozen as soon as a {DynamicResource} resolves
+             it onto a live element, and a frozen brush's Color is read-only.
+         ==================================================================== -->
+    <SolidColorBrush x:Key="FmkBg"          Color="%%FmkBg%%"/>
+    <SolidColorBrush x:Key="FmkBgAlt"       Color="%%FmkBgAlt%%"/>
+    <SolidColorBrush x:Key="FmkCard"        Color="%%FmkCard%%"/>
+    <SolidColorBrush x:Key="FmkCardHover"   Color="%%FmkCardHover%%"/>
+    <SolidColorBrush x:Key="FmkBorder"      Color="%%FmkBorder%%"/>
+    <SolidColorBrush x:Key="FmkFg"          Color="%%FmkFg%%"/>
+    <SolidColorBrush x:Key="FmkFgMuted"     Color="%%FmkFgMuted%%"/>
+    <SolidColorBrush x:Key="FmkLabel"       Color="%%FmkLabel%%"/>
+    <SolidColorBrush x:Key="FmkAccent"      Color="%%FmkAccent%%"/>
+    <SolidColorBrush x:Key="FmkAccentHover" Color="%%FmkAccentHover%%"/>
+    <SolidColorBrush x:Key="FmkSelect"      Color="%%FmkSelect%%"/>
+    <SolidColorBrush x:Key="FmkAccentFg"    Color="%%FmkAccentFg%%"/>
+    <SolidColorBrush x:Key="FmkLogBg"       Color="%%FmkLogBg%%"/>
+    <SolidColorBrush x:Key="FmkOverlay"     Color="%%FmkOverlay%%"/>
+    <SolidColorBrush x:Key="FmkRiskLow"     Color="%%FmkRiskLow%%"/>
+    <SolidColorBrush x:Key="FmkRiskMed"     Color="%%FmkRiskMed%%"/>
+    <SolidColorBrush x:Key="FmkRiskHigh"    Color="%%FmkRiskHigh%%"/>
+
+    <!-- ====================================================================
+         Sidebar navigation button. Selection is expressed through the Tag
+         property ("active") rather than mutating brushes from PowerShell, so
+         the trigger order below decides precedence: the active trigger is last
+         and therefore wins over the hover trigger.
+
+         Corner radius 2 throughout, matching WinUtil's ButtonCornerRadius.
+         ==================================================================== -->
+    <Style x:Key="NavButton" TargetType="Button">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Foreground" Value="{DynamicResource FmkFg}"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Padding" Value="11,6"/>
+      <Setter Property="FontSize" Value="13"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="HorizontalContentAlignment" Value="Left"/>
+      <Setter Property="HorizontalAlignment" Value="Stretch"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Bd"
+                    Background="{TemplateBinding Background}"
+                    CornerRadius="2"
+                    Margin="0,1"
+                    Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="Left" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource FmkCardHover}"/>
+              </Trigger>
+              <Trigger Property="Tag" Value="active">
+                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource FmkSelect}"/>
+                <Setter Property="Foreground" Value="{DynamicResource FmkAccentFg}"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- ====================================================================
+         Content card: one row per module. The hover fill is WinUtil's
+         AppInstallHighlightedColor; upstream lights up the whole row on
+         hover, so the card does too.
+         ==================================================================== -->
+    <Style x:Key="Card" TargetType="Border">
+      <Setter Property="Background" Value="{DynamicResource FmkCard}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource FmkBorder}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="5"/>
+      <Setter Property="Padding" Value="12,9"/>
+      <Setter Property="Margin" Value="0,0,0,4"/>
+      <Style.Triggers>
+        <Trigger Property="IsMouseOver" Value="True">
+          <Setter Property="Background" Value="{DynamicResource FmkCardHover}"/>
+        </Trigger>
+      </Style.Triggers>
+    </Style>
+
+    <!-- ====================================================================
+         Grid tile: the Software page's card. The tile itself is a Button (see
+         New-FmkTile), so this template carries the interaction states a plain
+         Border cannot: hover, pressed, keyboard focus, and disabled. Padding
+         is 8: the tile metrics in src/functions/06-cards.ps1 budget the
+         content against it, and the margin comes from code so the metrics stay
+         in one place.
+         ==================================================================== -->
+    <Style x:Key="TileButton" TargetType="Button">
+      <Setter Property="Background" Value="{DynamicResource FmkCard}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource FmkBorder}"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Bd"
+                    Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="5"
+                    Padding="8">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Top"/>
+            </Border>
+            <!-- The selected trigger is the ONLY writer of the selection
+                 border. Keyboard focus is deliberately NOT expressed here: an
+                 earlier IsKeyboardFocused trigger recolored this same border
+                 and always won over the selected trigger, so a deselected but
+                 still-focused tile kept a highlight-colored border until focus
+                 moved elsewhere. Focus now has its own adorner outside the
+                 tile (TileFocusVisual), so the border always agrees with the
+                 selection state. -->
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource FmkCardHover}"/>
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource FmkLabel}"/>
+              </Trigger>
+              <Trigger Property="Tag" Value="selected">
+                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource FmkSelect}"/>
+                <Setter TargetName="Bd" Property="BorderThickness" Value="2"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter TargetName="Bd" Property="Opacity" Value="0.55"/>
+                <Setter Property="Cursor" Value="Arrow"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- Keyboard-focus adorner for grid tiles. Drawn OUTSIDE the tile by WPF,
+         deliberately separate from the selection border (see the TileButton
+         trigger note): focus and selection must never share one border, or a
+         deselected-but-focused tile renders a stale highlight. -->
+    <Style x:Key="TileFocusVisual">
+      <Setter Property="Control.Template">
+        <Setter.Value>
+          <ControlTemplate>
+            <Rectangle Margin="-3"
+                       Stroke="{DynamicResource FmkLabel}"
+                       StrokeThickness="1"
+                       StrokeDashArray="2 2"
+                       RadiusX="7" RadiusY="7"/>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- Category chips above the Software grid. Selection is expressed through
+         the Tag property ("active"), same convention as the sidebar buttons. -->
+    <Style x:Key="ChipButton" TargetType="Button">
+      <Setter Property="Foreground" Value="{DynamicResource FmkFg}"/>
+      <Setter Property="FontSize" Value="11"/>
+      <Setter Property="Padding" Value="10,3"/>
+      <Setter Property="Margin" Value="0,0,6,0"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Bd"
+                    Background="Transparent"
+                    BorderBrush="{DynamicResource FmkBorder}"
+                    BorderThickness="1"
+                    CornerRadius="9"
+                    Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource FmkCardHover}"/>
+              </Trigger>
+              <Trigger Property="Tag" Value="active">
+                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource FmkSelect}"/>
+                <Setter Property="Foreground" Value="{DynamicResource FmkAccentFg}"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- The square the logo sits in. Darker than the card so a brand mark that
+         is close to the card colour still has an edge to read against. -->
+    <Style x:Key="LogoBox" TargetType="Border">
+      <Setter Property="Width" Value="38"/>
+      <Setter Property="Height" Value="38"/>
+      <Setter Property="CornerRadius" Value="4"/>
+      <Setter Property="Background" Value="{DynamicResource FmkBgAlt}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource FmkBorder}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="HorizontalAlignment" Value="Center"/>
+    </Style>
+
+    <!-- Primary action button inside a card. WinUtil's button fill is a muted
+         blue-teal, not a saturated accent, and its corners are nearly square. -->
+    <Style x:Key="RunButton" TargetType="Button">
+      <Setter Property="Foreground" Value="{DynamicResource FmkAccentFg}"/>
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="Padding" Value="14,0"/>
+      <Setter Property="Height" Value="25"/>
+      <Setter Property="MinWidth" Value="70"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Bd"
+                    Background="{DynamicResource FmkAccent}"
+                    BorderBrush="{DynamicResource FmkBorder}"
+                    BorderThickness="1"
+                    CornerRadius="2"
+                    Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource FmkAccentHover}"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter TargetName="Bd" Property="Opacity" Value="0.45"/>
+                <Setter Property="Cursor" Value="Arrow"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- Secondary / chrome button: the console collapse toggle. -->
+    <Style x:Key="GhostButton" TargetType="Button">
+      <Setter Property="Foreground" Value="{DynamicResource FmkFgMuted}"/>
+      <Setter Property="FontSize" Value="11"/>
+      <Setter Property="Padding" Value="7,0"/>
+      <Setter Property="Height" Value="20"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Bd"
+                    Background="Transparent"
+                    BorderBrush="{DynamicResource FmkBorder}"
+                    BorderThickness="1"
+                    CornerRadius="2"
+                    Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource FmkCardHover}"/>
+                <Setter Property="Foreground" Value="{DynamicResource FmkFg}"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- Group heading inside a page. Cyan, matching WinUtil's label colour. -->
+    <Style x:Key="SectionHeading" TargetType="TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource FmkLabel}"/>
+      <Setter Property="FontSize" Value="11"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="Margin" Value="2,14,0,5"/>
+    </Style>
+
+    <!-- Risk badge. Background is assigned per-card from the risk brush. -->
+    <Style x:Key="Pill" TargetType="Border">
+      <Setter Property="CornerRadius" Value="2"/>
+      <Setter Property="Padding" Value="6,2"/>
+      <Setter Property="Margin" Value="0,0,8,0"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+
+    <!-- Search box. Height and width follow WinUtil's SearchBarWidth /
+         SearchBarHeight so the header keeps a compact 50px row. -->
+    <Style x:Key="SearchBox" TargetType="TextBox">
+      <Setter Property="Background" Value="{DynamicResource FmkBg}"/>
+      <Setter Property="Foreground" Value="{DynamicResource FmkFg}"/>
+      <Setter Property="CaretBrush" Value="{DynamicResource FmkFg}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource FmkBorder}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="Padding" Value="7,0"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="TextBox">
+            <Border Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}"
+                    CornerRadius="2">
+              <ScrollViewer x:Name="PART_ContentHost"
+                            Margin="{TemplateBinding Padding}"
+                            VerticalAlignment="Center"/>
+            </Border>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- Placeholder shown while the search box is empty. WPF has no native
+         watermark, so this sits on top of the TextBox and hides itself as soon
+         as there is text. -->
+    <Style x:Key="SearchHint" TargetType="TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource FmkFgMuted}"/>
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="Margin" Value="8,0,0,0"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="IsHitTestVisible" Value="False"/>
+      <Setter Property="Visibility" Value="Collapsed"/>
+      <Style.Triggers>
+        <DataTrigger Binding="{Binding Text, ElementName=SearchBox}" Value="">
+          <Setter Property="Visibility" Value="Visible"/>
+        </DataTrigger>
+      </Style.Triggers>
+    </Style>
+
+    <!-- Log output pane. -->
+    <Style x:Key="LogBox" TargetType="RichTextBox">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Foreground" Value="{DynamicResource FmkFg}"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="IsReadOnly" Value="True"/>
+      <Setter Property="IsDocumentEnabled" Value="False"/>
+      <Setter Property="FontFamily" Value="Consolas"/>
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="Padding" Value="14,2,14,8"/>
+      <Setter Property="VerticalScrollBarVisibility" Value="Auto"/>
+      <Setter Property="HorizontalScrollBarVisibility" Value="Auto"/>
+    </Style>
+
+    <!-- One page per Category. Visibility is toggled, never re-created. -->
+    <Style x:Key="PageScroll" TargetType="ScrollViewer">
+      <Setter Property="VerticalScrollBarVisibility" Value="Auto"/>
+      <Setter Property="HorizontalScrollBarVisibility" Value="Disabled"/>
+      <Setter Property="Padding" Value="16,6,16,16"/>
+      <Setter Property="Visibility" Value="Collapsed"/>
+    </Style>
+
+  </Window.Resources>
+
+  <!-- Named so the console toggle can reach the log row as
+       RootGrid.RowDefinitions[2]. Indexed rather than named on the
+       RowDefinition itself: that is a FrameworkContentElement, and
+       Window.FindName is not guaranteed to surface one. -->
+  <Grid x:Name="RootGrid">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="50"/>
+      <RowDefinition Height="*"/>
+      <!-- The console is a strip you open on demand, not a permanent fixture. -->
+      <RowDefinition Height="150"/>
+    </Grid.RowDefinitions>
+
+    <!-- ==================================================================
+         Header
+         ================================================================== -->
+    <Border Grid.Row="0"
+            Background="{DynamicResource FmkBgAlt}"
+            BorderBrush="{DynamicResource FmkBorder}"
+            BorderThickness="0,0,0,1"
+            Padding="18,0">
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+
+        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+          <!-- Monospace wordmark: WinUtil sets HeaderFontFamily to Consolas. -->
+          <TextBlock Text="FreeMixKit" FontFamily="Consolas" FontSize="16" FontWeight="Bold"
+                     Foreground="{DynamicResource FmkFg}" VerticalAlignment="Center"/>
+          <TextBlock x:Name="VersionBadge" FontSize="11" Margin="8,3,0,0"
+                     Foreground="{DynamicResource FmkFgMuted}" VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <Button Grid.Column="2" x:Name="GlobalRiskHelpButton"
+                Style="{DynamicResource GhostButton}"
+                Content="Risk ratings?"
+                Margin="0,0,8,0"
+                VerticalAlignment="Center"
+                ToolTip="What do Low, Medium, and High mean?"/>
+        <Grid Grid.Column="3" Width="200" Height="26" HorizontalAlignment="Right">
+          <TextBox x:Name="SearchBox"
+                   Style="{DynamicResource SearchBox}"
+                   ToolTip="Filter modules on the current page"/>
+          <TextBlock Style="{DynamicResource SearchHint}" Text="Search"/>
+        </Grid>
+      </Grid>
+    </Border>
+
+    <!-- ==================================================================
+         Body: sidebar + pages
+         ================================================================== -->
+    <Grid Grid.Row="1">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="190"/>
+        <ColumnDefinition Width="*"/>
+      </Grid.ColumnDefinitions>
+
+      <Border Grid.Column="0" x:Name="SideBar"
+              Background="{DynamicResource FmkBgAlt}"
+              BorderBrush="{DynamicResource FmkBorder}"
+              BorderThickness="0,0,1,0">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="8,10">
+          <StackPanel x:Name="NavPanel"/>
+        </ScrollViewer>
+      </Border>
+
+      <Grid Grid.Column="1" x:Name="MainContent">
+
+        <ScrollViewer x:Name="page_System" Style="{DynamicResource PageScroll}">
+          <StackPanel x:Name="cards_System"/>
+        </ScrollViewer>
+
+        <ScrollViewer x:Name="page_Utilities" Style="{DynamicResource PageScroll}">
+          <StackPanel x:Name="cards_Utilities"/>
+        </ScrollViewer>
+
+        <!-- The Software page carries its own filter bar (category chips plus
+             a match count), so it is a Grid holding the bar above the
+             scroller rather than a bare ScrollViewer. The inner scroller is
+             what the filter resets via ScrollToTop. -->
+        <Grid x:Name="page_Software" Visibility="Collapsed">
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+          </Grid.RowDefinitions>
+          <Border Grid.Row="0"
+                  Background="{DynamicResource FmkBgAlt}"
+                  BorderBrush="{DynamicResource FmkBorder}"
+                  BorderThickness="0,0,0,1"
+                  Padding="16,8">
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <Button Grid.Column="0" x:Name="InstallSelectedButton"
+                      Style="{DynamicResource RunButton}"
+                      Content="Install Selected (0)"
+                      IsEnabled="False"
+                      ToolTip="Install the selected applications in selection order"/>
+              <Button Grid.Column="1" x:Name="ClearSelectionButton"
+                      Style="{DynamicResource GhostButton}"
+                      Content="Clear"
+                      Margin="8,0,0,0"
+                      ToolTip="Deselect all applications"/>
+              <TextBlock Grid.Column="2" x:Name="SelectionStatus"
+                         Text="Click cards to select apps, then Install Selected."
+                         Margin="12,0" FontSize="11"
+                         Foreground="{DynamicResource FmkFgMuted}"
+                         VerticalAlignment="Center"
+                         TextWrapping="Wrap"/>
+              <Button Grid.Column="3" x:Name="RiskHelpButton"
+                      Style="{DynamicResource GhostButton}"
+                      Content="Risk ratings?"
+                      ToolTip="What do Low, Medium, and High mean?"/>
+            </Grid>
+          </Border>
+          <StackPanel Grid.Row="1">
+            <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                          VerticalScrollBarVisibility="Disabled"
+                          Padding="16,8,16,0">
+              <StackPanel x:Name="SoftwareChips" Orientation="Horizontal"/>
+            </ScrollViewer>
+            <TextBlock x:Name="SoftwareCount"
+                       Margin="18,4,0,2" FontSize="11"
+                       Foreground="{DynamicResource FmkFgMuted}"/>
+          </StackPanel>
+          <!-- Plain properties, deliberately NOT Style=PageScroll: that style
+               hides the element until Set-FmkPage shows it, and visibility is
+               toggled on the outer page_Software Grid instead. Styling this
+               scroller with it would collapse the whole card area for good. -->
+          <ScrollViewer Grid.Row="2" x:Name="scroll_Software"
+                        VerticalScrollBarVisibility="Auto"
+                        HorizontalScrollBarVisibility="Disabled"
+                        Padding="16,6,16,16">
+            <StackPanel x:Name="cards_Software"/>
+          </ScrollViewer>
+        </Grid>
+
+        <ScrollViewer x:Name="page_Activation" Style="{DynamicResource PageScroll}">
+          <StackPanel x:Name="cards_Activation"/>
+        </ScrollViewer>
+
+        <ScrollViewer x:Name="page_About" Style="{DynamicResource PageScroll}">
+          <StackPanel x:Name="cards_About"/>
+        </ScrollViewer>
+
+        <!-- Shown when a search filters every card off the page. -->
+        <TextBlock x:Name="EmptyPageNotice"
+                   Text="No modules match that filter."
+                   Foreground="{DynamicResource FmkFgMuted}"
+                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                   Visibility="Collapsed"/>
+
+      </Grid>
+
+      <!-- Loading overlay: shown by Set-FmkBusyNow while an exclusive task
+           runs. It dims the sidebar and pages and swallows mouse input there
+           (a set Background is hit-test visible), while the log pane below
+           stays visible so output keeps streaming and the shared progress bar
+           stays in view. Cancel lives here so it stays clickable. -->
+      <Grid x:Name="BusyOverlay" Grid.ColumnSpan="2" Visibility="Collapsed"
+            Background="{DynamicResource FmkOverlay}">
+        <Border Style="{DynamicResource Card}"
+                HorizontalAlignment="Center" VerticalAlignment="Center"
+                MinWidth="300" MaxWidth="440">
+          <StackPanel>
+            <TextBlock x:Name="BusyOverlayText" Text="Working..."
+                       FontSize="13" FontWeight="SemiBold"
+                       HorizontalAlignment="Center" TextWrapping="Wrap"/>
+            <ProgressBar x:Name="BusyOverlaySpinner" IsIndeterminate="True"
+                         Width="220" Height="4" Margin="0,12,0,0"
+                         HorizontalAlignment="Center"/>
+            <Button x:Name="TaskCancelButton"
+                    Style="{DynamicResource GhostButton}"
+                    Content="Cancel"
+                    Margin="0,12,0,0" Padding="14,4"
+                    HorizontalAlignment="Center"
+                    Visibility="Collapsed"
+                    ToolTip="Stop pending work after the current step finishes"/>
+          </StackPanel>
+        </Border>
+      </Grid>
+    </Grid>
+
+    <!-- ==================================================================
+         Log pane
+         ================================================================== -->
+    <Border Grid.Row="2"
+            Background="{DynamicResource FmkLogBg}"
+            BorderBrush="{DynamicResource FmkBorder}"
+            BorderThickness="0,1,0,0">
+      <Grid>
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <Grid Grid.Row="0" Margin="14,6,14,4">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="Auto"/>
+          </Grid.ColumnDefinitions>
+
+          <TextBlock Grid.Column="0" Text="OUTPUT"
+                     FontSize="10" FontWeight="SemiBold"
+                     Foreground="{DynamicResource FmkFgMuted}"
+                     VerticalAlignment="Center"/>
+
+          <ProgressBar x:Name="ProgressBar" Grid.Column="1"
+                       Height="4" Margin="12,0"
+                       Minimum="0" Maximum="100" Value="0"
+                       Foreground="{DynamicResource FmkRiskLow}"
+                       Background="Transparent" BorderThickness="0"
+                       Visibility="Collapsed"
+                       VerticalAlignment="Center"/>
+
+          <!-- Numeric percentage for the shared bar. Empty (not zero) whenever
+               no measured percentage exists, so an indeterminate task never
+               shows a fabricated number. -->
+          <TextBlock Grid.Column="2" x:Name="ProgressPercent"
+                     Text=""
+                     FontSize="11" Margin="0,0,10,0" MinWidth="34"
+                     Foreground="{DynamicResource FmkFgMuted}"
+                     VerticalAlignment="Center"/>
+
+          <TextBlock Grid.Column="3" x:Name="StatusText"
+                     Text="Ready"
+                     FontSize="11" Margin="0,0,10,0"
+                     Foreground="{DynamicResource FmkFgMuted}"
+                     VerticalAlignment="Center"/>
+
+          <Button x:Name="LogToggle" Grid.Column="4"
+                  Style="{DynamicResource GhostButton}"
+                  Content="&#x25BC;"
+                  ToolTip="Show or hide the output pane"/>
+        </Grid>
+
+        <RichTextBox x:Name="LogBox" Grid.Row="1" Style="{DynamicResource LogBox}"/>
+      </Grid>
+    </Border>
+
+  </Grid>
+</Window>
