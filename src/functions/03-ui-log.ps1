@@ -281,7 +281,7 @@ function Set-FmkBusyNow {
     try { $value = [double]$state.PendingProgressValue } catch { $value = 0 }
 
     # Loading overlay: dims the body, swallows its mouse input, keeps the
-    # current operation and a cancel action visible. The log pane is outside
+    # current operation and a stop action visible. The log pane is outside
     # the overlay, so output keeps streaming and the shared bar stays in view.
     if ($state.BusyOverlay) {
         $state.BusyOverlay.Visibility = if ($busy) {
@@ -302,16 +302,17 @@ function Set-FmkBusyNow {
             $text
         }
     }
-    # Only the queue is safely cancellable (it stops after the current step;
-    # a running installer is never killed). Single tasks show no Cancel.
+    # Every active task can be stopped; queued installs also skip pending items.
     if ($state.TaskCancelButton) {
-        $showCancel = $busy -and [bool]$state.QueueRunning
+        $showCancel = $busy
         $state.TaskCancelButton.Visibility = if ($showCancel) {
             [System.Windows.Visibility]::Visible
         }
         else {
             [System.Windows.Visibility]::Collapsed
         }
+        $state.TaskCancelButton.Content = if ($state.CancelRequested) { 'Stopping...' } else { 'Stop task' }
+        $state.TaskCancelButton.IsEnabled = -not [bool]$state.CancelRequested
     }
 
     if ($state.ProgressBar) {

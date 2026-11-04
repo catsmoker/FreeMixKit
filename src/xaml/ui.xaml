@@ -561,11 +561,11 @@
                          HorizontalAlignment="Center"/>
             <Button x:Name="TaskCancelButton"
                     Style="{DynamicResource GhostButton}"
-                    Content="Cancel"
+                    Content="Stop task"
                     Margin="0,12,0,0" Padding="14,4"
                     HorizontalAlignment="Center"
                     Visibility="Collapsed"
-                    ToolTip="Stop pending work after the current step finishes"/>
+                    ToolTip="Stop the active process and any child processes; partial changes may remain"/>
           </StackPanel>
         </Border>
       </Grid>

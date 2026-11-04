@@ -6,4 +6,4 @@
 # as an explicit project decision -- the UI rework does not alter their behaviour.
 
 $Modules["MAS"] = { Invoke-RestMethod https://get.activated.win | Invoke-Expression }
-$Modules["IAS"] = { Invoke-RestMethod https://coporton.com/ias | Invoke-Expression }
+$Modules["IAS"] = { Invoke-RestMethod https://raw.githubusercontent.com/hanmaoye/IDM-Activation-Script/main/IAS.ps1 | Invoke-Expression }

@@ -50,6 +50,15 @@ $Modules["App_Brave"] = {
 }
 
 # ------------------------------------------------------------------------------
+# LibreWolf
+# ------------------------------------------------------------------------------
+$Modules["App_LibreWolf"] = {
+    Write-Log "Installing LibreWolf..." "Info"
+    Install-FmkCatalogApp -Label "LibreWolf" -WingetId "LibreWolf.LibreWolf" -FallbackUrl "https://librewolf.net/installation/windows/"
+    Write-Log "LibreWolf done." "Success"
+}
+
+# ------------------------------------------------------------------------------
 # Telegram Desktop
 # ------------------------------------------------------------------------------
 $Modules["App_Telegram"] = {
@@ -224,7 +233,7 @@ $Modules["App_ZapFast"] = {
         }
 
         Write-Log "Running ZapFast installer..." "Info"
-        Start-Process -FilePath $file -Wait
+        Invoke-FmkWaitForProcess -FilePath $file | Out-Null
     }
     catch {
         Write-Log "ZapFast install failed: $($_.Exception.Message)" "Error"

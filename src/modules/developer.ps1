@@ -82,7 +82,7 @@ $Modules["Dev_DotNet"] = {
 
     Write-Log "Enabling .NET Framework 3.5 (Windows Feature)..." "Info"
     try {
-        Start-Process "dism.exe" -ArgumentList "/Online /Enable-Feature /FeatureName:NetFx3 /All /NoRestart" -Wait -NoNewWindow
+        Invoke-FmkWaitForProcess -FilePath "dism.exe" -ArgumentList @("/Online", "/Enable-Feature", "/FeatureName:NetFx3", "/All", "/NoRestart") -NoNewWindow | Out-Null
     }
     catch { Write-Log ".NET 3.5 enable failed: $($_.Exception.Message)" "Warn" }
 
@@ -201,7 +201,7 @@ Windows Registry Editor Version 5.00
 "@
         $regPath = Join-Path $DataTemp "nppfix.reg"
         $reg | Out-File $regPath -Encoding ASCII -Force
-        Start-Process reg.exe -Argument "import `"$regPath`"" -Wait -NoNewWindow
+        Invoke-FmkWaitForProcess -FilePath "reg.exe" -ArgumentList @("import", "`"$regPath`"") -NoNewWindow | Out-Null
     }
 
     Write-Log "Notepad++ done." "Success"
@@ -228,7 +228,7 @@ $Modules["Dev_BibataCursor"] = {
         Expand-Archive $zip -Dest $dest -Force
         $regularInf = Get-ChildItem "$dest" -Recurse -Filter "*.inf" | Where-Object { $_.FullName -match "Regular" } | Select-Object -First 1
         if (-not $regularInf) { $regularInf = Get-ChildItem "$dest" -Recurse -Filter "*.inf" | Select-Object -First 1 }
-        if ($regularInf) { Start-Process "RUNDLL32.EXE" -Arg "SETUPAPI.DLL,InstallHinfSection DefaultInstall 128 $($regularInf.FullName)" -Wait }
+        if ($regularInf) { Invoke-FmkWaitForProcess -FilePath "RUNDLL32.EXE" -ArgumentList @("SETUPAPI.DLL,InstallHinfSection", "DefaultInstall", "128", "`"$($regularInf.FullName)`"") | Out-Null }
     }
     catch { Write-Log "Cursor Failed" "Error" }
 

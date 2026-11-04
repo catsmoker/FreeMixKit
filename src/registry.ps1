@@ -83,19 +83,34 @@ Register-Module "IAS" "Activate IDM" "Activates Internet Download Manager (IDM).
     ConfirmMessage = "IAS activates IDM outside its license terms.`nThis may violate the IDM license or local law and runs remote code. Continue only where legal and at your own risk."
     RiskReason     = "Bypasses IDM licensing; runs remote activation code."
     RiskTechnical  = "High: modifies licensed app state; remote script execution."
-    RiskSource     = "Medium: fetched live from coporton.com/ias at run time."
+    RiskSource     = "Medium-high: fetched live from hanmaoye/IDM-Activation-Script GitHub at run time."
     RiskPrivacy    = "Low: no exfiltration identified."
     RiskLicense    = "High: use outside IDM terms may violate license or law."
     RiskPrivileges = "Requires admin."
-    RiskEvidence   = "https://coporton.com/ias"
-    RiskReviewed   = "2026-10-16"
+    RiskEvidence   = "https://github.com/hanmaoye/IDM-Activation-Script"
+    RiskReviewed   = "2026-11-04"
 }
 
 # Moved from Software: the Adobe entries are licensing/activation work, not
 # standalone applications. AdobeUninstall came along because splitting the two
 # Adobe entries across two tabs would leave a one-member "Adobe" group behind in
 # Software; see the session report for why that call was made.
-Register-Module "AdobeGenP" "Adobe CC & GenP" "Downloads Creative Cloud and GenP activator." $Modules["AdobeGenP"] "High" @{
+Register-Module "AdobeCC" "Adobe Creative Cloud" "Installs Adobe Creative Cloud via Winget." $Modules["AdobeCC"] "Low" @{
+    RequiresNetwork = $true
+    Category        = "Activation"
+    Group           = "Adobe"
+    ActionLabel     = "Install"
+    RiskReason      = "Official Adobe installer via Winget; large download."
+    RiskTechnical   = "Low: official vendor installer."
+    RiskSource      = "High confidence: Adobe official package via Winget."
+    RiskPrivacy     = "Low: standard Adobe telemetry per their privacy policy."
+    RiskLicense     = "None: installs trial; requires valid subscription."
+    RiskPrivileges  = "Requires admin; installs system-wide."
+    RiskEvidence    = "https://creativecloud.adobe.com/apps/download/creative-cloud"
+    RiskReviewed    = "2026-10-16"
+}
+
+Register-Module "GenP" "GenP (Adobe Patcher)" "Downloads and runs GenP to patch Adobe apps." $Modules["GenP"] "High" @{
     RequiresNetwork = $true
     Category        = "Activation"
     Group           = "Adobe"
@@ -382,20 +397,20 @@ Register-Module "App_Stremio" "Stremio" "Media discovery and streaming applicati
     Logo            = "App_Stremio"
 }
 
-Register-Module "Legcord" "Legcord" "Lightweight Discord client." $Modules["Legcord"] "Medium" @{
+Register-Module "Vesktop" "Vesktop" "Vencord-powered Discord client with plugin support." $Modules["Vesktop"] "Medium" @{
     RequiresNetwork = $true
     Category        = "Software"
     Group           = "Messaging"
     ActionLabel     = "Install"
-    Logo            = "App_Legcord"
-    RiskReason      = "Unofficial Discord client: handles account tokens; ToS caveats."
-    RiskTechnical   = "Medium: third-party client replacing the official app surface."
-    RiskSource      = "Medium-high: Legcord GitHub releases; third party, not Discord."
+    Logo            = "App_Vesktop"
+    RiskReason      = "Unofficial Discord client with plugin support; handles account tokens; ToS caveats."
+    RiskTechnical   = "Medium: third-party client replacing the official app surface; Electron-based."
+    RiskSource      = "Medium-high: Vencord/Vesktop GitHub releases; third party, not Discord."
     RiskPrivacy     = "Medium: chat client handles tokens/messages; use official privacy controls."
     RiskLicense     = "Medium: third-party clients may conflict with Discord terms."
     RiskPrivileges  = "Standard install."
-    RiskEvidence    = "https://github.com/Legcord/Legcord/releases"
-    RiskReviewed    = "2026-10-16"
+    RiskEvidence    = "https://github.com/Vencord/Vesktop/releases"
+    RiskReviewed    = "2026-11-04"
 }
 
 Register-Module "App_Telegram" "Telegram Desktop" "Desktop messaging app." $Modules["App_Telegram"] "None" @{
@@ -432,6 +447,14 @@ Register-Module "App_Brave" "Brave Browser" "Privacy-focused web browser." $Modu
     Group           = "Browsers"
     ActionLabel     = "Install"
     Logo            = "App_Brave"
+}
+
+Register-Module "App_LibreWolf" "LibreWolf" "Privacy-focused Firefox fork with uBlock Origin built-in." $Modules["App_LibreWolf"] "None" @{
+    RequiresNetwork = $true
+    Category        = "Software"
+    Group           = "Browsers"
+    ActionLabel     = "Install"
+    Logo            = "App_LibreWolf"
 }
 
 Register-Module "App_LocalSend" "LocalSend" "Local-network file transfer." $Modules["App_LocalSend"] "None" @{

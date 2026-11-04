@@ -187,7 +187,7 @@ function Write-FmkStreamRecord {
     Write-Log $fmt.Text $fmt.Type
 }
 
-function Invoke-ModuleAction([string]$ActionKey) {
+function Invoke-ModuleAction([string]$ActionKey, [switch]$SkipConfirm) {
     if (-not $Modules.Contains($ActionKey)) {
         throw "Unknown action '$ActionKey'."
     }
@@ -198,7 +198,15 @@ function Invoke-ModuleAction([string]$ActionKey) {
     $verifyBlock = Get-ModuleMetaValue -ActionKey $ActionKey -Name "Verify" -DefaultValue $null
     $rollbackHint = Get-ModuleMetaValue -ActionKey $ActionKey -Name "RollbackHint" -DefaultValue ""
 
-    if ($confirmMessage) {
+    # Confirmation must be handled by the caller (UI thread) when running in a
+    # background runspace, because the sync state (window, delegates) is not
+    # marshaled by reference across runspace boundaries. If SkipConfirm is not
+    # set and a confirm message exists but we have no UI access, throw a clear
+    # error instead of falling back to Read-Host which crashes the host.
+    if ($confirmMessage -and -not $SkipConfirm) {
+        if (-not ($global:sync -and $global:sync.FmkWindow)) {
+            throw "Module '$ActionKey' requires confirmation but cannot prompt in background runspace. Caller must handle confirmation on the UI thread before invoking."
+        }
         if (-not (Confirm-Action $confirmMessage)) {
             return [pscustomobject]@{
                 Status        = "Canceled"
@@ -222,6 +230,9 @@ function Invoke-ModuleAction([string]$ActionKey) {
     $global:LASTEXITCODE = 0
 
     try {
+        if (Test-FmkTaskCancellationRequested) {
+            throw [System.OperationCanceledException]::new('Task canceled by user.')
+        }
         # Merged-stream execution: every record the module emits -- success
         # output, errors, warnings, verbose/debug/information, progress -- is
         # classified and streamed to the Output panel as it happens instead of
@@ -231,6 +242,9 @@ function Invoke-ModuleAction([string]$ActionKey) {
         & $Modules[$ActionKey] *>&1 | ForEach-Object { Write-FmkStreamRecord -Record $_ }
 
         $duration = (Get-Date) - $start
+        if (Test-FmkTaskCancellationRequested) {
+            throw [System.OperationCanceledException]::new('Task canceled by user.')
+        }
 
         $effectiveExitCode = if (Test-Path variable:global:LASTEXITCODE) { $global:LASTEXITCODE } else { 0 }
         if ($effectiveExitCode -ne 0) {
@@ -255,6 +269,15 @@ function Invoke-ModuleAction([string]$ActionKey) {
             Duration      = $duration
             RollbackHint  = $rollbackHint
             PreviousState = $previousState
+        }
+    }
+    catch [System.OperationCanceledException] {
+        return [pscustomobject]@{
+            Status        = "Canceled"
+            Message       = $_.Exception.Message
+            Duration      = (Get-Date) - $start
+            RollbackHint  = $rollbackHint
+            PreviousState = ""
         }
     }
     finally {

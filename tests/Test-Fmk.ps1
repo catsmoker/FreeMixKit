@@ -126,11 +126,11 @@ Assert-Test (($npp.Count -eq 1) -and ($npp[0].Risk -eq 'None')) 'Notepad++ untag
 Assert-Test (($npp.Count -eq 1) -and ($npp[0].Block -notmatch 'RiskReason')) 'Notepad++ carries no risk detail'
 $spotx = Get-RiskHit 'SpotX'
 Assert-Test (($spotx.Count -eq 1) -and ($spotx[0].Risk -eq 'Medium')) 'SpotX rated Medium'
-$legcord = Get-RiskHit 'Legcord'
-Assert-Test (($legcord.Count -eq 1) -and ($legcord[0].Risk -eq 'Medium')) 'Legcord rated Medium'
+$vesktop = Get-RiskHit 'Vesktop'
+Assert-Test (($vesktop.Count -eq 1) -and ($vesktop[0].Risk -eq 'Medium')) 'Vesktop rated Medium'
 $winutil = Get-RiskHit 'WinUtil'
 Assert-Test (($winutil.Count -eq 1) -and ($winutil[0].Risk -eq 'Low')) 'WinUtil unchanged (Low)'
-$genp = Get-RiskHit 'AdobeGenP'
+$genp = Get-RiskHit 'GenP'
 Assert-Test (($genp.Count -eq 1) -and ($genp[0].Risk -eq 'High')) 'GenP unchanged (High)'
 if ($genp.Count -eq 1) {
     Assert-Test ($genp[0].Block -match 'licens' -and $genp[0].Block -match 'Technical') 'GenP separates licensing from technical risk'
@@ -475,6 +475,7 @@ if ($runtimeAvailable) {
             $tsync.PendingBusyText = 'Installing X (2 of 5)'
             $tsync.PendingProgressMode = 'Determinate'
             $tsync.PendingProgressValue = 40
+            $tsync.QueueRunning = $false
             Set-FmkBusyNow
             Assert-Test ($tsync.BusyOverlay.Visibility -eq $vis::Visible) 'overlay shows while busy'
             Assert-Test (($tsync.ProgressBar.Visibility -eq $vis::Visible) -and ($tsync.ProgressBar.Value -eq 40) -and (-not $tsync.ProgressBar.IsIndeterminate)) 'determinate bar reflects measured value'
@@ -485,12 +486,11 @@ if ($runtimeAvailable) {
             Set-FmkBusyNow
             Assert-Test ($tsync.ProgressBar.IsIndeterminate -and ($tsync.ProgressPercent.Text -eq '')) 'indeterminate shows no number'
             Assert-Test ($tsync.BusyOverlayText.Text -match 'waiting for installer progress information') 'indeterminate names the missing evidence'
+            Assert-Test ($tsync.TaskCancelButton.Visibility -eq $vis::Visible) 'cancel offered for a single task'
             $tsync.QueueRunning = $true
             Set-FmkBusyNow
-            Assert-Test ($tsync.TaskCancelButton.Visibility -eq $vis::Visible) 'cancel offered for the queue'
+            Assert-Test ($tsync.TaskCancelButton.Visibility -eq $vis::Visible) 'cancel offered for the install queue'
             $tsync.QueueRunning = $false
-            Set-FmkBusyNow
-            Assert-Test ($tsync.TaskCancelButton.Visibility -eq $vis::Collapsed) 'no cancel for lone tasks'
             $tsync.PendingBusy = $false
             $tsync.PendingProgressMode = 'Complete'
             Set-FmkBusyNow
@@ -585,6 +585,76 @@ if ($runtimeAvailable) {
         Assert-Test $threw 'nonzero exit throws'
         Assert-Test ($throwMsg -match 'exit 3') 'exit code reported, not just started'
         Assert-Test (($t2 -match 'out-marker') -and ($t2 -match 'err-marker')) 'stdout and stderr both captured'
+
+        # Cancellation can stop the child process tree, and a pending request
+        # is reported as Canceled instead of starting another process.
+        $child = Start-Process -FilePath 'powershell.exe' -ArgumentList @(
+            '-NoProfile', '-Command', 'Start-Sleep -Seconds 30'
+        ) -PassThru -WindowStyle Hidden
+        Stop-FmkProcessTree -Process $child
+        $child.Refresh()
+        Assert-Test $child.HasExited 'process tree stops on cancellation'
+        $child.Dispose()
+        $waitExit = Invoke-FmkWaitForProcess -FilePath 'cmd.exe' -ArgumentList @('/c', 'exit 0')
+        Assert-Test ($waitExit -eq 0) 'wait helper preserves normal process completion'
+
+        $cancelSync = [hashtable]::Synchronized(@{
+            CancelRequested = $true
+            FmkWindow       = $null
+        })
+        $savedSync = $global:sync
+        $global:sync = $cancelSync
+        $cancelThrew = $false
+        try {
+            [void](Invoke-ExternalCommand -FilePath 'powershell.exe' -Arguments @(
+                '-NoProfile', '-Command', 'Start-Sleep -Seconds 30'
+            ))
+        }
+        catch [System.OperationCanceledException] {
+            $cancelThrew = $true
+        }
+        finally { $global:sync = $savedSync }
+        Assert-Test $cancelThrew 'pending cancellation blocks external command'
+
+        $Modules['__TestCanceled__'] = {
+            throw [System.OperationCanceledException]::new('Task canceled by user.')
+        }
+        $cancelResult = Invoke-ModuleAction -ActionKey '__TestCanceled__'
+        Assert-Test ($cancelResult.Status -eq 'Canceled') 'module cancellation returns canceled result'
+
+        # Winget uses this nonzero code when there are no applicable packages.
+        # It is allowed only at the call site that explicitly opts in.
+        $noApps = Invoke-ExternalCommand -FilePath 'powershell.exe' -Arguments @('-NoProfile', '-Command', 'exit -1978335212') -AllowedExitCodes @(-1978335212)
+        Assert-Test ($noApps.ExitCode -eq -1978335212) 'allowed no-applications exit code is returned'
+
+        # Best-effort refreshes in Ensure-WingetInstalled must not replace the
+        # caller's action exit status with a stale native-command result.
+        $savedWingetFunction = Get-Item Function:\global:winget -ErrorAction SilentlyContinue
+        $hadEnsureExitCode = Test-Path variable:global:LASTEXITCODE
+        $savedEnsureExitCode = if ($hadEnsureExitCode) { $global:LASTEXITCODE } else { 0 }
+        try {
+            function global:winget {
+                $global:LASTEXITCODE = -1978335212
+                Write-Output 'mock winget output'
+            }
+            $global:LASTEXITCODE = 0
+            Ensure-WingetInstalled
+            Assert-Test ($global:LASTEXITCODE -eq 0) 'winget preparation preserves caller exit status'
+        }
+        finally {
+            if ($savedWingetFunction) {
+                Set-Item Function:\global:winget -Value $savedWingetFunction.ScriptBlock
+            }
+            else {
+                Remove-Item Function:\global:winget -ErrorAction SilentlyContinue
+            }
+            if ($hadEnsureExitCode) {
+                $global:LASTEXITCODE = $savedEnsureExitCode
+            }
+            else {
+                Remove-Variable -Scope Global -Name LASTEXITCODE -ErrorAction SilentlyContinue
+            }
+        }
 
         # 3. PowerShell warning/error/success streams through a real module run.
         $Modules['__TestStreams__'] = {

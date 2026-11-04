@@ -17,26 +17,38 @@ function Ensure-WingetInstalled {
     # Keep winget and its sources fresh. Their real output is streamed line by
     # line instead of discarded: these are quick, already in memory (no
     # process plumbing needed), and silent runs hide verification failures.
+    $hadLastExitCode = Test-Path variable:global:LASTEXITCODE
+    $oldLastExitCode = if ($hadLastExitCode) { $global:LASTEXITCODE } else { 0 }
     try {
-        Write-Log "Refreshing winget sources..." "Info"
-        $refreshLines = @(winget source update --disable-interactivity 2>&1 | ForEach-Object { "$_" })
-        foreach ($line in $refreshLines) {
-            if ($line -and $line.Trim()) { Write-Log $line.TrimEnd() "Info" }
+        try {
+            Write-Log "Refreshing winget sources..." "Info"
+            $refreshLines = @(winget source update --disable-interactivity 2>&1 | ForEach-Object { "$_" })
+            foreach ($line in $refreshLines) {
+                if ($line -and $line.Trim()) { Write-Log $line.TrimEnd() "Info" }
+            }
         }
-    }
-    catch {
-        Write-Log "Winget source refresh failed: $($_.Exception.Message)" "Warn"
-    }
+        catch {
+            Write-Log "Winget source refresh failed: $($_.Exception.Message)" "Warn"
+        }
 
-    try {
-        Write-Log "Checking winget client updates..." "Info"
-        $upgradeLines = @(winget upgrade --id Microsoft.DesktopAppInstaller --exact --source winget --accept-source-agreements --accept-package-agreements --disable-interactivity 2>&1 | ForEach-Object { "$_" })
-        foreach ($line in $upgradeLines) {
-            if ($line -and $line.Trim()) { Write-Log $line.TrimEnd() "Info" }
+        try {
+            Write-Log "Checking winget client updates..." "Info"
+            $upgradeLines = @(winget upgrade --id Microsoft.DesktopAppInstaller --exact --source winget --accept-source-agreements --accept-package-agreements --disable-interactivity 2>&1 | ForEach-Object { "$_" })
+            foreach ($line in $upgradeLines) {
+                if ($line -and $line.Trim()) { Write-Log $line.TrimEnd() "Info" }
+            }
+        }
+        catch {
+            Write-Log "Winget client upgrade skipped/failed: $($_.Exception.Message)" "Warn"
         }
     }
-    catch {
-        Write-Log "Winget client upgrade skipped/failed: $($_.Exception.Message)" "Warn"
+    finally {
+        if ($hadLastExitCode) {
+            $global:LASTEXITCODE = $oldLastExitCode
+        }
+        else {
+            Remove-Variable -Scope Global -Name LASTEXITCODE -ErrorAction SilentlyContinue
+        }
     }
 }
 
@@ -119,6 +131,71 @@ function Install-And-LaunchWingetPackage {
     Start-Process -FilePath $exePath
 }
 
+function Test-FmkTaskCancellationRequested {
+    return [bool]($global:sync -and $global:sync.CancelRequested)
+}
+
+function Stop-FmkProcessTree {
+    param([Parameter(Mandatory)][System.Diagnostics.Process]$Process)
+
+    $Process.Refresh()
+    if ($Process.HasExited) { return }
+
+    $taskkillPath = Join-Path $env:SystemRoot 'System32\taskkill.exe'
+    if (Test-Path -LiteralPath $taskkillPath) {
+        $stopper = Start-Process -FilePath $taskkillPath -ArgumentList @(
+            '/PID', [string]$Process.Id, '/T', '/F'
+        ) -PassThru -WindowStyle Hidden
+        if (-not $stopper.WaitForExit(10000)) {
+            try { $stopper.Kill() } catch { }
+            throw "Timed out stopping process tree for PID $($Process.Id)."
+        }
+    }
+
+    $Process.Refresh()
+    if (-not $Process.HasExited) {
+        $Process.Kill()
+    }
+    if (-not $Process.WaitForExit(5000)) {
+        throw "Process PID $($Process.Id) did not stop after cancellation."
+    }
+}
+
+function Invoke-FmkWaitForProcess {
+    param(
+        [Parameter(Mandatory)][string]$FilePath,
+        [Parameter()][string[]]$ArgumentList = @(),
+        [Parameter()][switch]$NoNewWindow
+    )
+
+    if (Test-FmkTaskCancellationRequested) {
+        throw [System.OperationCanceledException]::new('Task canceled by user.')
+    }
+
+    $startParams = @{
+        FilePath = $FilePath
+        ArgumentList = $ArgumentList
+        PassThru = $true
+    }
+    if ($NoNewWindow) { $startParams.NoNewWindow = $true }
+    $proc = Start-Process @startParams
+    try {
+        while (-not $proc.WaitForExit(200)) {
+            if (Test-FmkTaskCancellationRequested) {
+                Stop-FmkProcessTree -Process $proc
+                throw [System.OperationCanceledException]::new('Task canceled by user.')
+            }
+        }
+        if (Test-FmkTaskCancellationRequested) {
+            throw [System.OperationCanceledException]::new('Task canceled by user.')
+        }
+        return $proc.ExitCode
+    }
+    finally {
+        $proc.Dispose()
+    }
+}
+
 function Test-NetworkConnectivity {
     try {
         return [bool](Test-Connection -ComputerName "1.1.1.1" -Count 1 -Quiet -ErrorAction Stop)
@@ -198,8 +275,13 @@ function Invoke-ExternalCommand {
     #>
     param(
         [Parameter(Mandatory = $true)][string]$FilePath,
-        [Parameter()][string[]]$Arguments = @()
+        [Parameter()][string[]]$Arguments = @(),
+        [Parameter()][int[]]$AllowedExitCodes = @()
     )
+
+    if (Test-FmkTaskCancellationRequested) {
+        throw [System.OperationCanceledException]::new('Task canceled by user.')
+    }
 
     Write-Log "> $FilePath $($Arguments -join ' ')" "Info"
 
@@ -243,9 +325,14 @@ function Invoke-ExternalCommand {
            Fragment = ''; Eof = $false }
     )
 
+    $cancelled = $false
     try {
         $openStreams = @($streams | Where-Object { -not $_.Eof })
         while ((-not $proc.HasExited) -or ($openStreams.Count -gt 0)) {
+            if (-not $cancelled -and (Test-FmkTaskCancellationRequested)) {
+                $cancelled = $true
+                Stop-FmkProcessTree -Process $proc
+            }
             foreach ($st in $streams) {
                 if ($st.Eof) { continue }
                 try {
@@ -277,8 +364,9 @@ function Invoke-ExternalCommand {
         }
     }
     catch {
+        if ($cancelled) { throw }
         # Capture must never stick the task: wait out our own child (waiting
-        # is correct -- never kill) and let the exit code decide.
+        # is correct when no cancellation was requested) and let the exit code decide.
         Write-Log "Stream capture degraded, waiting for exit: $($_.Exception.Message)" "Warn"
         try { $proc.WaitForExit() } catch { }
     }
@@ -287,7 +375,11 @@ function Invoke-ExternalCommand {
     try { $exitCode = $proc.ExitCode } catch { $exitCode = 0 }
     try { $proc.Dispose() } catch { }
 
-    if ($exitCode -ne 0) {
+    if ($cancelled) {
+        throw [System.OperationCanceledException]::new('Task canceled by user.')
+    }
+
+    if ($exitCode -ne 0 -and $AllowedExitCodes -notcontains $exitCode) {
         throw "Command failed (exit $exitCode): $FilePath $($Arguments -join ' ')"
     }
 

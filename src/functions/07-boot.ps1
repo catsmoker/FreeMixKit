@@ -65,11 +65,12 @@ function New-FmkSyncState {
     $sync.SoftwareGroup = $null
     # Software multi-select queue. SoftwareSelection is an ArrayList whose order
     # IS the install order (append on select, remove on deselect). QueueRunning
-    # plus Busy guards duplicate runs; QueueCancel lets Cancel skip pending
-    # items after the current one finishes.
+    # plus Busy guards duplicate runs. CancelRequested stops the active child
+    # process; QueueCancel also skips the rest of a selected install queue.
     $sync.SoftwareSelection = New-Object System.Collections.ArrayList
     $sync.QueueRunning = $false
     $sync.QueueCancel = $false
+    $sync.CancelRequested = $false
     # Queue progress accounting, read by Update-FmkObservedProgress: totals
     # and completed counts are task facts, never estimates.
     $sync.QueueTotal = 0
@@ -217,12 +218,12 @@ function Initialize-FmkUi {
                     Clear-FmkSoftwareSelection -Sync $global:sync
                 })
         }
-        # The overlay Cancel: visible only while the queue runs (the one
-        # safely cancellable task). Handlers read $global:sync, never locals,
+        # The overlay Stop button is available for any active task. Handlers
+        # read $global:sync, never locals,
         # because scriptblocks do not close over the creating scope.
         if ($sync.TaskCancelButton) {
             $sync.TaskCancelButton.Add_Click({
-                    Request-FmkQueueCancel -Sync $global:sync
+                    Request-FmkTaskCancel -Sync $global:sync
                 })
         }
         if ($sync.RiskHelpButton) {

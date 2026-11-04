@@ -2,11 +2,13 @@
 # MODULE: Third-party software (Adobe, Spotify, Windows tweaks, Discord)
 # ==============================================================================
 
-$Modules["AdobeGenP"] = {
+$Modules["AdobeCC"] = {
     Ensure-WingetInstalled
-    Write-Log "Automating Adobe Creative Cloud installation via Winget..." "Info"
+    Write-Log "Installing Adobe Creative Cloud via Winget..." "Info"
     Install-WingetPackage -Id "Adobe.CreativeCloud"
+}
 
+$Modules["GenP"] = {
     # --- GenP Automation (Multi-Source Dynamic) ---
     $guideUrl = "https://wiki.dbzer0.com/genp-guides/guide/"
     $internxtUrl = "https://wiki.dbzer0.com/genp-guides/guide/#download-directory"
@@ -31,13 +33,9 @@ $Modules["AdobeGenP"] = {
         return
     }
 
-    # 2. Choice: Automated vs Manual
-    Write-Host ""
-    if (-not (Confirm-Action "Would you like to attempt an automated download from community mirrors (GitHub)?`n(Selecting 'N' will open the official guide for manual download instead)")) {
-        Write-Log "Opening official guide for manual download..." "Info"
-        Start-Process $internxtUrl
-        return
-    }
+    # 2. Attempt automated download from community mirrors (no interactive prompt)
+    # If not found, falls back to opening the official guide for manual download.
+    Write-Log "Searching community mirrors for GenP $targetVersion..." "Info"
 
     # 3. Search Sources for matching version
     $sources = @(
@@ -119,10 +117,13 @@ $Modules["AdobeUninstall"] = {
 
 $Modules["WingetUpgrade"] = {
     Ensure-WingetInstalled
-    Invoke-ExternalCommand -FilePath "winget.exe" -Arguments @(
+    $upgradeResult = Invoke-ExternalCommand -FilePath "winget.exe" -Arguments @(
         "upgrade", "--all", "--include-unknown",
         "--accept-source-agreements", "--accept-package-agreements"
-    ) | Out-Null
+    ) -AllowedExitCodes @(-1978335212)
+    if ($upgradeResult.ExitCode -eq -1978335212) {
+        Write-Log "Winget found no applicable upgrades." "Info"
+    }
 }
 
 $Modules["Spicetify"] = {
@@ -145,9 +146,19 @@ $Modules["Spicetify"] = {
 
         Unregister-ScheduledTask -TaskName $Title -Confirm:$false -ErrorAction SilentlyContinue
         Register-ScheduledTask -TaskName $Title -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
-        Start-ScheduledTask -TaskName $Title
-        Start-Sleep -Seconds 10
-        Unregister-ScheduledTask -TaskName $Title -Confirm:$false -ErrorAction SilentlyContinue
+        try {
+            Start-ScheduledTask -TaskName $Title
+            for ($i = 0; $i -lt 10; $i++) {
+                if (Test-FmkTaskCancellationRequested) {
+                    Stop-ScheduledTask -TaskName $Title -ErrorAction SilentlyContinue
+                    throw [System.OperationCanceledException]::new('Task canceled by user.')
+                }
+                Start-Sleep -Seconds 1
+            }
+        }
+        finally {
+            Unregister-ScheduledTask -TaskName $Title -Confirm:$false -ErrorAction SilentlyContinue
+        }
     }
 
     if (-not (Test-Path $spotifyExe)) {
@@ -196,12 +207,19 @@ Start-Process '$spotifyInstaller' -ArgumentList '/silent' -Wait
             $percent = [int](100 * (30 - $sec) / 30)
             Write-Progress -Activity "Spotify first-launch warmup" -Status "Waiting $sec s..." -PercentComplete $percent
             if ($proc.HasExited) { break }
+            if (Test-FmkTaskCancellationRequested) {
+                Stop-FmkProcessTree -Process $proc
+                throw [System.OperationCanceledException]::new('Task canceled by user.')
+            }
             Start-Sleep -Seconds 1
         }
         Write-Progress -Activity "Spotify first-launch warmup" -Completed
         if ($proc -and -not $proc.HasExited) {
             Stop-Process -Id $proc.Id -ErrorAction SilentlyContinue
         }
+    }
+    catch [System.OperationCanceledException] {
+        throw
     }
     catch {
         Write-Log "Could not auto-launch/close Spotify: $($_.Exception.Message)" "Warn"
@@ -343,13 +361,14 @@ Read-Host
     }
 }
 
-$Modules["Legcord"] = {
+$Modules["Vesktop"] = {
     try {
-        $u = ((Invoke-RestMethod "https://api.github.com/repos/Legcord/Legcord/releases/latest").assets | Where-Object name -match ".exe" | Select-Object -First 1).browser_download_url
-        Invoke-WebRequest $u -OutFile "$DataDownloads\legcord.exe"; Start-Process "$DataDownloads\legcord.exe" -Wait
+        $u = ((Invoke-RestMethod "https://api.github.com/repos/Vencord/Vesktop/releases/latest").assets | Where-Object name -match "Vesktop-Setup-.*\.exe$" | Select-Object -First 1).browser_download_url
+        Invoke-WebRequest $u -OutFile "$DataDownloads\vesktop-setup.exe"
+        Invoke-FmkWaitForProcess -FilePath "$DataDownloads\vesktop-setup.exe" | Out-Null
     }
     catch {
-        Write-Log "Legcord install failed: $($_.Exception.Message)" "Error"
+        Write-Log "Vesktop install failed: $($_.Exception.Message)" "Error"
         throw
     }
 }

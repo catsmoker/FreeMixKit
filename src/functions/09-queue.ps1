@@ -61,8 +61,8 @@ function Invoke-FmkSoftwareQueue {
     <#
         UI entry point for Install Selected. Guards against duplicate runs via
         QueueRunning plus the shared Busy flag, snapshots the order up front,
-        installs sequentially, supports Cancel for pending items, and reports a
-        success/failed/cancelled summary with failure details in the log.
+        installs sequentially, stops the active process on request, skips
+        pending items, and reports a success/failed/cancelled summary.
     #>
     param([Parameter(Mandatory)]$Sync)
 
@@ -88,6 +88,7 @@ function Invoke-FmkSoftwareQueue {
 
     $Sync.QueueRunning = $true
     $Sync.QueueCancel = $false
+    $Sync.CancelRequested = $false
     $Sync.Busy = $true
     $Sync.BusyLabel = 'Install queue'
     $Sync.QueueTotal = $queue.Count
@@ -133,7 +134,9 @@ function Invoke-FmkSoftwareQueue {
 
             $result = $null
             try {
-                $result = Invoke-FmkRunspace -ActionKey $key -Sync $Sync
+                # SkipConfirm=$true because Confirm-FmkQueueRisks already handled
+                # confirmation for all Medium/High items upfront.
+                $result = Invoke-FmkRunspace -ActionKey $key -Sync $Sync -SkipConfirm
             }
             catch {
                 $result = [pscustomobject]@{
@@ -172,6 +175,14 @@ function Invoke-FmkSoftwareQueue {
             elseif ($result.Status -eq 'Canceled') {
                 $cancelled++
                 Write-Log "Queue: $label canceled ($index/$total)." 'Warn'
+                if ([bool]$Sync.QueueCancel) {
+                    $remaining = $total - $index
+                    $cancelled += $remaining
+                    if ($remaining -gt 0) {
+                        Write-Log "Queue canceled by user; $remaining pending item(s) skipped." 'Warn'
+                    }
+                    break
+                }
             }
             else {
                 $failed++
@@ -185,6 +196,7 @@ function Invoke-FmkSoftwareQueue {
         # all clear here even when a step throws or the user cancels.
         $Sync.QueueRunning = $false
         $Sync.QueueCancel = $false
+        $Sync.CancelRequested = $false
         $Sync.Busy = $false
         $Sync.BusyLabel = $null
         Set-FmkBusy -Busy $false
@@ -224,9 +236,14 @@ function Invoke-FmkSoftwareQueue {
     }
 }
 
-function Request-FmkQueueCancel {
+function Request-FmkTaskCancel {
     param([Parameter(Mandatory)]$Sync)
-    if (-not [bool]$Sync.QueueRunning) { return }
-    $Sync.QueueCancel = $true
-    Write-Log 'Cancel requested; finishing the current install, then stopping.' 'Warn'
+    if (-not [bool]$Sync.Busy) { return }
+    $Sync.CancelRequested = $true
+    if ([bool]$Sync.QueueRunning) { $Sync.QueueCancel = $true }
+    if ($Sync.TaskCancelButton) {
+        $Sync.TaskCancelButton.Content = 'Stopping...'
+        $Sync.TaskCancelButton.IsEnabled = $false
+    }
+    Write-Log 'Cancel requested; stopping the active process. Changes already made will remain.' 'Warn'
 }

@@ -81,7 +81,8 @@ function Invoke-FmkRunspace {
     #>
     param(
         [Parameter(Mandatory)][string]$ActionKey,
-        [Parameter(Mandatory)]$Sync
+        [Parameter(Mandatory)]$Sync,
+        [switch]$SkipConfirm
     )
 
     $libPath = $null
@@ -96,7 +97,7 @@ function Invoke-FmkRunspace {
         # Degrade rather than fail: the module still runs, the window just
         # blocks for the duration.
         Write-Log "No bootstrap available; running on the UI thread (window will block)." "Warn"
-        return Invoke-ModuleAction -ActionKey $ActionKey
+        return Invoke-ModuleAction -ActionKey $ActionKey -SkipConfirm:$SkipConfirm
     }
 
     $rs = $null
@@ -114,7 +115,7 @@ function Invoke-FmkRunspace {
         $ps.Runspace = $rs
 
         [void]$ps.AddScript({
-                param($Sync, $LibraryPath, $ActionKey)
+                param($Sync, $LibraryPath, $ActionKey, $SkipConfirm)
 
                 # Library mode defines every function and module in this
                 # runspace's scope, then returns.
@@ -124,8 +125,8 @@ function Invoke-FmkRunspace {
                 # $global:sync to $null on the way through.
                 $global:sync = $Sync
 
-                return Invoke-ModuleAction -ActionKey $ActionKey
-            }).AddArgument($Sync).AddArgument($libPath).AddArgument($ActionKey)
+                return Invoke-ModuleAction -ActionKey $ActionKey -SkipConfirm:$SkipConfirm
+            }).AddArgument($Sync).AddArgument($libPath).AddArgument($ActionKey).AddArgument($SkipConfirm)
 
         $handle = $ps.BeginInvoke()
 
@@ -163,6 +164,25 @@ function Invoke-FmkModule {
     )
 
     $label = Get-ModuleMetaValue -ActionKey $ActionKey -Name "Label" -DefaultValue $ActionKey
+    $confirmMessage = Get-ModuleMetaValue -ActionKey $ActionKey -Name "ConfirmMessage" -DefaultValue $null
+    $rollbackHint = Get-ModuleMetaValue -ActionKey $ActionKey -Name "RollbackHint" -DefaultValue ""
+
+    # Handle confirmation on the UI thread BEFORE starting the background runspace.
+    # The background runspace cannot show the confirmation dialog because the sync
+    # state (window, delegates) is not marshaled by reference across runspace
+    # boundaries. If the user cancels, return early with a Canceled result.
+    if ($confirmMessage) {
+        if (-not (Confirm-Action $confirmMessage)) {
+            Write-Log "Canceled by user" "Warn"
+            return [pscustomobject]@{
+                Status        = "Canceled"
+                Message       = "Canceled by user"
+                Duration      = [timespan]::Zero
+                RollbackHint  = $rollbackHint
+                PreviousState = ""
+            }
+        }
+    }
 
     # Re-entrancy guard. Set-FmkBusy disables every action button before the
     # module starts, which is what normally stops a second click, but a queued
@@ -179,25 +199,28 @@ function Invoke-FmkModule {
     }
     $Sync.Busy = $true
     $Sync.BusyLabel = $label
+    $Sync.CancelRequested = $false
 
     Set-FmkBusy -Busy $true -Text "Running: $label"
     Write-Log "Executing: $label" "Muted"
 
     try {
-        $result = Invoke-FmkRunspace -ActionKey $ActionKey -Sync $Sync
+        # SkipConfirm=$true because we already handled confirmation on the UI thread
+        $result = Invoke-FmkRunspace -ActionKey $ActionKey -Sync $Sync -SkipConfirm
     }
     catch {
         $result = [pscustomobject]@{
             Status        = "Failed"
             Message       = $_.Exception.Message
             Duration      = [timespan]::Zero
-            RollbackHint  = Get-ModuleMetaValue -ActionKey $ActionKey -Name "RollbackHint" -DefaultValue ""
+            RollbackHint  = $rollbackHint
             PreviousState = ""
         }
     }
     finally {
         $Sync.Busy = $false
         $Sync.BusyLabel = $null
+        $Sync.CancelRequested = $false
         Set-FmkBusy -Busy $false
     }
 

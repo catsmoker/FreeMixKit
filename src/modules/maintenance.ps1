@@ -24,11 +24,11 @@ $Modules["MalwareScan"] = {
         Invoke-WebRequest "https://go.microsoft.com/fwlink/?LinkID=212732" -OutFile "$DataDownloads\MRT.exe"
         $mrt = "$DataDownloads\MRT.exe"
     }
-    Start-Process $mrt -Wait
+    Invoke-FmkWaitForProcess -FilePath $mrt | Out-Null
 
     $kvrt = Join-Path $DataDownloads "kvrt.exe"
     Invoke-WebRequest "https://devbuilds.s.kaspersky-labs.com/kvrt/latest/full/kvrt.exe" -OutFile $kvrt
-    Start-Process $kvrt -Wait
+    Invoke-FmkWaitForProcess -FilePath $kvrt | Out-Null
 }
 
 $Modules["SystemReport"] = {

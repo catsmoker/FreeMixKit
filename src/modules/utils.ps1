@@ -19,11 +19,11 @@ $Modules["WinUtil"] = {
         Invoke-WebRequest -Uri $scriptUrl -OutFile $scriptPath
 
         Write-Log "Launching WinUtil..." "Info"
-        Start-Process -FilePath $shellExe -ArgumentList @(
+        Invoke-FmkWaitForProcess -FilePath $shellExe -ArgumentList @(
             "-NoProfile",
             "-ExecutionPolicy", "Bypass",
             "-File", ('"{0}"' -f $scriptPath)
-        ) -Wait
+        ) | Out-Null
     }
     catch {
         Write-Log "WinUtil launch failed: $($_.Exception.Message)" "Error"
@@ -59,8 +59,8 @@ $Modules["FixResolution"] = {
     Write-Log "Downloading CRU from: $cruZipUrl" "Info"
     Invoke-WebRequest -Uri $cruZipUrl -OutFile $cruZipPath
     Expand-Archive $cruZipPath $cruExtractPath -Force
-    Start-Process (Join-Path $cruExtractPath "CRU.exe") -Wait
-    Start-Process (Join-Path $cruExtractPath "restart64.exe") -Wait
+    Invoke-FmkWaitForProcess -FilePath (Join-Path $cruExtractPath "CRU.exe") | Out-Null
+    Invoke-FmkWaitForProcess -FilePath (Join-Path $cruExtractPath "restart64.exe") | Out-Null
 }
 
 $Modules["MSGameBarFix"] = {
@@ -68,11 +68,11 @@ $Modules["MSGameBarFix"] = {
     $localScriptPath = Join-Path $DataTemp "ms-gamebar-fix.ps1"
     Write-Log "Downloading and launching ms-gamebar-fix..." "Info"
     Invoke-WebRequest -Uri $MSGameBarFixScriptUrl -OutFile $localScriptPath
-    Start-Process -FilePath $shellExe -ArgumentList @(
+    Invoke-FmkWaitForProcess -FilePath $shellExe -ArgumentList @(
         "-NoProfile",
         "-ExecutionPolicy", "Bypass",
         "-File", ('"{0}"' -f $localScriptPath)
-    ) -Wait
+    ) | Out-Null
 }
 
 $Modules["MemReduct"] = {
