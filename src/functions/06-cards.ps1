@@ -463,6 +463,10 @@ function New-FmkCard {
                 }
             })
         $combo.SelectedIndex = 0
+        # Prime the sync hashtable so the module sees a selection immediately
+        if ($global:sync -and $combo.SelectedItem) {
+            $global:sync["Selection_$Key"] = $combo.SelectedItem.Url
+        }
         [void]$right.Children.Add($combo)
     }
 
