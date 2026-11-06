@@ -142,6 +142,41 @@ Register-Module "AdobeUninstall" "Adobe Uninstall" "Downloads and launches Adobe
     RiskReviewed    = "2026-10-16"
 }
 
+Register-Module "Monkrus" "Monkrus Adobe Apps" "Pick a Monkrus Adobe app from the card's dropdown, then opens its Telegram page." $Modules["Monkrus"] "High" @{
+    RequiresNetwork = $true
+    Category        = "Activation"
+    Group           = "Adobe"
+    ActionLabel     = "Open"
+    Logo            = "Monkrus"
+    ConfirmMessage  = "Monkrus provides patched Adobe applications outside Adobe licensing.`nThis may violate Adobe terms or local law. The apps are distributed via Telegram channels with unverified executables.`nContinue only where legal and at your own risk."
+    # Drives the inline dropdown on the card (New-FmkCard). The selected
+    # entry's Url is parked on $sync as "Selection_Monkrus" and read back by
+    # the module body; links are t.me search results per app.
+    DropdownItems   = @(
+        @{ Name = 'Acrobat Pro'; Url = 'https://t.me/s/real_monkrus?q=acrobat' }
+        @{ Name = 'After Effects'; Url = 'https://t.me/s/real_monkrus?q=after+effects' }
+        @{ Name = 'Illustrator'; Url = 'https://t.me/s/real_monkrus?q=illustrator' }
+        @{ Name = 'InDesign'; Url = 'https://t.me/s/real_monkrus?q=indesign' }
+        @{ Name = 'Lightroom Classic'; Url = 'https://t.me/s/real_monkrus?q=lightroom+classic' }
+        @{ Name = 'Media Encoder'; Url = 'https://t.me/s/real_monkrus?q=media+encoder' }
+        @{ Name = 'Photoshop'; Url = 'https://t.me/s/real_monkrus?q=photoshop' }
+        @{ Name = 'Photoshop Remove Tool AI'; Url = 'https://t.me/s/real_monkrus?q=remove+tool+ai' }
+        @{ Name = 'Premiere Pro'; Url = 'https://t.me/s/real_monkrus?q=premiere+pro' }
+        @{ Name = 'Speech to Text Add-on for Premiere Pro'; Url = 'https://t.me/s/real_monkrus?q=speech+to+text' }
+        @{ Name = 'Substance 3D apps'; Url = 'https://t.me/s/real_monkrus?q=substance+3d' }
+        @{ Name = 'XD'; Url = 'https://t.me/s/real_monkrus?q=xd' }
+        @{ Name = 'All Apps (Master Collection)'; Url = 'https://t.me/s/real_monkrus?q=master+collection' }
+    )
+    RiskReason      = "Unverified patched Adobe apps from Telegram channels; licensing impact."
+    RiskTechnical   = "High: runs unverified third-party patched installers that modify Adobe software."
+    RiskSource      = "Low: Telegram channels; executable provenance varies per release."
+    RiskPrivacy     = "Unknown: closed patched apps; no independent audit claimed."
+    RiskLicense     = "High: use outside Adobe terms may violate license or law."
+    RiskPrivileges  = "Requires admin for installation."
+    RiskEvidence    = "https://t.me/s/real_monkrus"
+    RiskReviewed    = "2026-11-06"
+}
+
 # --- Software: developer tooling ----------------------------------------------
 # These were one "Dev Choice (Full)" bundle. Each entry below installs exactly
 # one component, using the bundle's own command for that component.
@@ -289,6 +324,14 @@ Register-Module "App_HandBrake" "HandBrake" "Video transcoding tool." $Modules["
     Group           = "Video & Image Tools"
     ActionLabel     = "Install"
     Logo            = "App_HandBrake"
+}
+
+Register-Module "App_Blender" "Blender" "3D creation suite: modeling, sculpting, animation, rendering." $Modules["App_Blender"] "None" @{
+    RequiresNetwork = $true
+    Category        = "Software"
+    Group           = "Video & Image Tools"
+    ActionLabel     = "Install"
+    Logo            = "App_Blender"
 }
 
 # DirectX and XNA were part of the old bundle but belong to gaming rather than

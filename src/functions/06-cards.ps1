@@ -438,6 +438,34 @@ function New-FmkCard {
     $badge = New-FmkRiskBadge -Meta $meta -Sync $Sync
     if ($badge) { [void]$right.Children.Add($badge) }
 
+    # Inline option dropdown, only for registry entries that carry
+    # DropdownItems. The chosen entry's Url is parked on $sync under
+    # "Selection_<Key>", which is the channel the module body reads on the
+    # background runspace (it shares this synchronized state). The popup is a
+    # separate visual tree, so its colors come from the FmkComboBox /
+    # FmkComboBoxItem styles rather than from anything set here.
+    $dropdownItems = Get-ModuleMetaValue -ActionKey $Key -Name "DropdownItems" -DefaultValue $null
+    if ($dropdownItems) {
+        $combo = New-Object System.Windows.Controls.ComboBox
+        $combo.Style = $Sync.FmkWindow.FindResource('FmkComboBox')
+        $combo.ItemContainerStyle = $Sync.FmkWindow.FindResource('FmkComboBoxItem')
+        $combo.Width = 200
+        $combo.Uid = $Key
+        $combo.ToolTip = "Choose an item, then click $($meta.ActionLabel)"
+        $combo.ItemTemplate = $Sync.FmkWindow.FindResource('FmkDropdownItemTemplate')
+        foreach ($entry in $dropdownItems) {
+            [void]$combo.Items.Add([pscustomobject]@{ Name = [string]$entry.Name; Url = [string]$entry.Url })
+        }
+        # Event handlers read $this/$global:sync, never function-locals.
+        [void]$combo.Add_SelectionChanged({
+                if ($global:sync -and $this.SelectedItem) {
+                    $global:sync["Selection_$($this.Uid)"] = $this.SelectedItem.Url
+                }
+            })
+        $combo.SelectedIndex = 0
+        [void]$right.Children.Add($combo)
+    }
+
     [void]$right.Children.Add((New-FmkActionButton -Key $Key -Meta $meta -Sync $Sync -Caption $meta.ActionLabel))
 
     [System.Windows.Controls.Grid]::SetColumn($right, 1)

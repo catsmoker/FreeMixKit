@@ -171,6 +171,15 @@ $Modules["App_UnityHub"] = {
 }
 
 # ------------------------------------------------------------------------------
+# Blender
+# ------------------------------------------------------------------------------
+$Modules["App_Blender"] = {
+    Write-Log "Installing Blender..." "Info"
+    Install-FmkCatalogApp -Label "Blender" -WingetId "BlenderFoundation.Blender" -FallbackUrl "https://www.blender.org/download/"
+    Write-Log "Blender done." "Success"
+}
+
+# ------------------------------------------------------------------------------
 # ZapFast (unofficial WhatsApp desktop client)
 # ------------------------------------------------------------------------------
 $Modules["App_ZapFast"] = {

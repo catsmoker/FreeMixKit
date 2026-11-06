@@ -115,7 +115,14 @@ function Invoke-FmkRunspace {
         $ps.Runspace = $rs
 
         [void]$ps.AddScript({
-                param($Sync, $LibraryPath, $ActionKey, $SkipConfirm)
+                # NB: this scriptblock runs at the top (global) scope of the
+                # fresh runspace, so these parameters ARE global variables --
+                # and PowerShell names are case-insensitive, so `param($Sync)`
+                # and `$global:sync` are the SAME variable. Dot-sourcing the
+                # library would therefore wipe the argument we just bound
+                # (`$global:sync = $null` in the template). Stash the sync
+                # state under a name the library never touches first.
+                param($FmkSyncArg, $LibraryPath, $ActionKey, $SkipConfirm)
 
                 # Library mode defines every function and module in this
                 # runspace's scope, then returns.
@@ -123,7 +130,7 @@ function Invoke-FmkRunspace {
 
                 # Must be set AFTER the dot-source -- library mode initialises
                 # $global:sync to $null on the way through.
-                $global:sync = $Sync
+                $global:sync = $FmkSyncArg
 
                 return Invoke-ModuleAction -ActionKey $ActionKey -SkipConfirm:$SkipConfirm
             }).AddArgument($Sync).AddArgument($libPath).AddArgument($ActionKey).AddArgument($SkipConfirm)

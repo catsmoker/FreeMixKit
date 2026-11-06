@@ -115,6 +115,26 @@ $Modules["AdobeUninstall"] = {
     Start-Process $ccCleanerPath
 }
 
+$Modules["Monkrus"] = {
+    <#
+        Monkrus Adobe Apps - opens the Telegram page for the app picked in the
+        card's inline dropdown (registry DropdownItems; see New-FmkCard, which
+        parks the choice on $sync as "Selection_Monkrus"). This runs on the
+        background runspace, which shares that synchronized state. All links
+        point to t.me/s/real_monkrus search results for each app.
+    #>
+    $selectedUrl = $null
+    if ($global:sync) { $selectedUrl = $global:sync['Selection_Monkrus'] }
+
+    if (-not $selectedUrl) {
+        throw "No Monkrus app selected. Pick one in the card's dropdown first."
+    }
+
+    Write-Log "Opening Telegram page: $selectedUrl" "Info"
+    Start-Process $selectedUrl
+    Write-Log "Opened Monkrus app page in browser." "Success"
+}
+
 $Modules["WingetUpgrade"] = {
     Ensure-WingetInstalled
     $upgradeResult = Invoke-ExternalCommand -FilePath "winget.exe" -Arguments @(

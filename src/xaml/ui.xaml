@@ -378,6 +378,151 @@
       <Setter Property="Visibility" Value="Collapsed"/>
     </Style>
 
+    <!-- ====================================================================
+         Card dropdown rows (FmkComboBox). Explicit template, not
+         DisplayMemberPath: the stock selection box only mirrors ItemTemplate,
+         so a path-based display shows the item's ToString in the closed box.
+         DropdownItems entries are { Name, Url } hashtables.
+         ==================================================================== -->
+    <DataTemplate x:Key="FmkDropdownItemTemplate">
+      <TextBlock Text="{Binding Name}"/>
+    </DataTemplate>
+
+    <!-- ====================================================================
+         Inline option dropdown on a card (New-FmkCard, driven by the
+         registry's DropdownItems). A full custom template rather than plain
+         property setters: the stock WPF chrome paints itself light no matter
+         what Background it is given, and the dropdown popup is a separate
+         visual tree that never sees this control's colors, which left the
+         selected text light on light. Box, arrow, popup, and item states are
+         all themed here so the control matches the rest of the window.
+         ==================================================================== -->
+    <Style x:Key="FmkComboBox" TargetType="ComboBox">
+      <Setter Property="Background" Value="{DynamicResource FmkBg}"/>
+      <Setter Property="Foreground" Value="{DynamicResource FmkFg}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource FmkBorder}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="Height" Value="25"/>
+      <Setter Property="MinWidth" Value="160"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ComboBox">
+            <Grid>
+              <Border x:Name="Bd"
+                      Background="{TemplateBinding Background}"
+                      BorderBrush="{TemplateBinding BorderBrush}"
+                      BorderThickness="{TemplateBinding BorderThickness}"
+                      CornerRadius="2"/>
+              <!-- Sits above the chrome but below the content presenter
+                   (which is hit-test invisible), so a click anywhere on the
+                   box toggles the popup. The arrow lives in this template
+                   because the toggle is what draws it. -->
+              <ToggleButton x:Name="ToggleButton"
+                            Focusable="False"
+                            ClickMode="Press"
+                            IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+                <ToggleButton.Template>
+                  <ControlTemplate TargetType="ToggleButton">
+                    <Grid Background="Transparent">
+                      <Path x:Name="Arrow"
+                            Data="M0,0 L4,4 8,0 Z"
+                            Width="8" Height="4"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Center"
+                            Margin="0,0,9,0"
+                            Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ComboBox}}"/>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                      <Trigger Property="IsMouseOver" Value="True">
+                        <Setter TargetName="Arrow" Property="Opacity" Value="0.7"/>
+                      </Trigger>
+                    </ControlTemplate.Triggers>
+                  </ControlTemplate>
+                </ToggleButton.Template>
+              </ToggleButton>
+              <ContentPresenter x:Name="ContentSite"
+                                IsHitTestVisible="False"
+                                Content="{Binding SelectionBoxItem, RelativeSource={RelativeSource TemplatedParent}}"
+                                ContentTemplate="{Binding SelectionBoxItemTemplate, RelativeSource={RelativeSource TemplatedParent}}"
+                                Margin="9,0,26,0"
+                                HorizontalAlignment="Left"
+                                VerticalAlignment="Center"/>
+              <Popup x:Name="PART_Popup"
+                     Placement="Bottom"
+                     IsOpen="{TemplateBinding IsDropDownOpen}"
+                     AllowsTransparency="True"
+                     Focusable="False"
+                     PopupAnimation="Slide">
+                <Grid x:Name="DropDown"
+                      SnapsToDevicePixels="True"
+                      MinWidth="{TemplateBinding ActualWidth}"
+                      MaxHeight="{TemplateBinding MaxDropDownHeight}">
+                  <Border x:Name="DropDownBorder"
+                          Margin="0,2,0,0"
+                          Background="{DynamicResource FmkBgAlt}"
+                          BorderBrush="{DynamicResource FmkBorder}"
+                          BorderThickness="1"
+                          CornerRadius="2">
+                    <ScrollViewer Margin="4" SnapsToDevicePixels="True">
+                      <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Contained"/>
+                    </ScrollViewer>
+                  </Border>
+                </Grid>
+              </Popup>
+            </Grid>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsDropDownOpen" Value="True">
+                <Setter TargetName="DropDownBorder" Property="BorderBrush" Value="{DynamicResource FmkLabel}"/>
+              </Trigger>
+              <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource FmkLabel}"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter TargetName="Bd" Property="Opacity" Value="0.45"/>
+                <Setter Property="Cursor" Value="Arrow"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- Rows inside the card dropdown. IsHighlighted covers the keyboard and
+         mouse pass; IsSelected then wins over it for the committed choice. -->
+    <Style x:Key="FmkComboBoxItem" TargetType="ComboBoxItem">
+      <Setter Property="Foreground" Value="{DynamicResource FmkFg}"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Padding" Value="8,5"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ComboBoxItem">
+            <Border x:Name="Bd"
+                    Background="{TemplateBinding Background}"
+                    Padding="{TemplateBinding Padding}"
+                    CornerRadius="2"
+                    SnapsToDevicePixels="True">
+              <ContentPresenter/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsHighlighted" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource FmkCardHover}"/>
+              </Trigger>
+              <Trigger Property="IsSelected" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource FmkSelect}"/>
+                <Setter Property="Foreground" Value="{DynamicResource FmkAccentFg}"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.5"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
   </Window.Resources>
 
   <!-- Named so the console toggle can reach the log row as
