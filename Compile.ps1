@@ -397,6 +397,13 @@ $buildHeader = @"
 # ==============================================================================
 "@
 
+# Also emit the stamp as a real variable. The `irm | iex` entry point has no
+# file on disk to compare against, so Get-FmkLibraryPath (04-runspace.ps1) uses
+# this to detect a bootstrap copy left behind by an older build in
+# C:\FreeMixKit\temp. Without it that copy was never refreshed and background
+# modules kept executing whatever version the user first ran.
+$buildHeader += "`r`n`$FmkBuildStamp = '$stamp'`r`n"
+
 $output = $template
 $output = $output.Replace('#>>BUILD<<#', $buildHeader)
 $output = $output.Replace('#>>FUNCTIONS<<#', (Join-SourceBlocks -Paths $functionPaths).TrimEnd())

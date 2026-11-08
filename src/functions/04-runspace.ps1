@@ -20,16 +20,71 @@ function Get-FmkLibraryPath {
         A path to a copy of this script that a runspace can dot-source.
         Running from a file we already have one; running from `irm | iex` we do
         not, so fetch a copy into the temp dir (that is what $ScriptUrl is for).
+
+        The temp copy MUST be refreshed when it belongs to a different build.
+        It used to be downloaded only when missing, which pinned the very first
+        version a user ever ran: the UI ran the new script while every
+        background module executed the old one, producing failures that looked
+        impossible ("Unknown action 'Monkrus'", no MAS fallbacks, a second
+        confirmation dialog from a runspace that predated -SkipConfirm).
     #>
     if ($PSCommandPath -and (Test-Path -LiteralPath $PSCommandPath)) {
         return $PSCommandPath
     }
 
     $libPath = Join-Path $DataTemp 'FreeMixKit.Library.ps1'
-    if (-not (Test-Path -LiteralPath $libPath)) {
-        Write-Host "Fetching a runspace bootstrap copy..." -ForegroundColor DarkGray
-        Invoke-WebRequest -Uri $ScriptUrl -OutFile $libPath -UseBasicParsing -ErrorAction Stop
+    $stampPath = Join-Path $DataTemp 'FreeMixKit.Library.build'
+
+    # $FmkBuildStamp is emitted by Compile.ps1. Get-Variable keeps this working
+    # if an older build ever reaches this function.
+    $currentStamp = [string](Get-Variable -Name FmkBuildStamp -ValueOnly -ErrorAction SilentlyContinue)
+    $cachedStamp = ''
+    if (Test-Path -LiteralPath $stampPath) {
+        $cachedStamp = [string](Get-Content -LiteralPath $stampPath -Raw -ErrorAction SilentlyContinue)
+        $cachedStamp = $cachedStamp.Trim()
     }
+
+    if ((Test-Path -LiteralPath $libPath) -and $currentStamp -and $cachedStamp -eq $currentStamp) {
+        return $libPath
+    }
+
+    Write-Host "Fetching a runspace bootstrap copy..." -ForegroundColor DarkGray
+
+    # Cache-bust the CDN: raw.githubusercontent.com serves main/w.ps1 with a
+    # 5-minute TTL, so an unqualified URL can hand back the previous build.
+    $downloadUrl = $ScriptUrl
+    if ($currentStamp) {
+        $downloadUrl = "${ScriptUrl}?v=$([Uri]::EscapeDataString($currentStamp))"
+    }
+
+    $downloadPath = "$libPath.download"
+    try {
+        Invoke-WebRequest -Uri $downloadUrl -OutFile $downloadPath -UseBasicParsing -ErrorAction Stop
+        Move-Item -LiteralPath $downloadPath -Destination $libPath -Force
+
+        if ($currentStamp) {
+            $downloaded = [System.IO.File]::ReadAllText($libPath)
+            $m = [regex]::Match($downloaded, '(?m)^# Build: (.+?)\s*$')
+            $downloadedStamp = if ($m.Success) { $m.Groups[1].Value.Trim() } else { '' }
+
+            if ($downloadedStamp -ne $currentStamp) {
+                Write-Log "Runspace bootstrap copy is a different build than this script; background modules may lag until the CDN refreshes." "Warn"
+            }
+
+            # Record what was actually downloaded, never the running build: a
+            # stale CDN edge must be retried on the next action rather than
+            # being marked as current and pinned forever.
+            if ($downloadedStamp) {
+                Set-Content -LiteralPath $stampPath -Value $downloadedStamp -NoNewline
+            }
+        }
+    }
+    finally {
+        if (Test-Path -LiteralPath $downloadPath) {
+            Remove-Item -LiteralPath $downloadPath -Force -ErrorAction SilentlyContinue
+        }
+    }
+
     return $libPath
 }
 

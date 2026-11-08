@@ -6,6 +6,10 @@
 # as an explicit project decision -- the UI rework does not alter their behaviour.
 
 $Modules["MAS"] = {
+    # Three download paths, tried in order. Each one is caught so a failure
+    # moves on to the next instead of aborting the whole action.
+    $err1 = $null; $err2 = $null; $err3 = $null
+
     # Primary: standard HTTPS
     Write-Log "MAS: Trying primary (https://get.activated.win)..." "Info"
     try {
@@ -24,6 +28,7 @@ $Modules["MAS"] = {
             Write-Log "MAS: Fallback 1 succeeded." "Success"
             return
         }
+        throw "curl.exe exited with code $LASTEXITCODE and returned no content."
     }
     catch { $err2 = $_; Write-Log "MAS: Fallback 1 failed - $($err2.Exception.Message)" "Warn" }
 
@@ -33,16 +38,19 @@ $Modules["MAS"] = {
         $url = 'https://dev.azure.com/massgrave/Microsoft-Activation-Scripts/_apis/git/repositories/Microsoft-Activation-Scripts/items?path=/MAS/All-In-One-Version-KL/MAS_AIO.cmd&download=true'
         $tempCmd = "$env:TEMP\MAS_AIO_$([Guid]::NewGuid()).cmd"
         Invoke-RestMethod $url -OutFile $tempCmd -UseBasicParsing -ErrorAction Stop
-        if (Test-Path $tempCmd) {
-            Start-Process -FilePath $tempCmd -ArgumentList '-el' -Wait -Verb RunAs
-            Remove-Item -Path $tempCmd -Force -ErrorAction SilentlyContinue
-            Write-Log "MAS: Fallback 2 succeeded." "Success"
-            return
-        }
+        if (-not (Test-Path -LiteralPath $tempCmd)) { throw "MAS_AIO.cmd was not downloaded." }
+        Start-Process -FilePath $tempCmd -ArgumentList '-el' -Wait -Verb RunAs
+        Remove-Item -Path $tempCmd -Force -ErrorAction SilentlyContinue
+        Write-Log "MAS: Fallback 2 succeeded." "Success"
+        return
     }
     catch { $err3 = $_; Write-Log "MAS: Fallback 2 failed - $($err3.Exception.Message)" "Warn" }
 
-    Write-Error "MAS activation failed. Primary: $($err1.Exception.Message); Fallback1: $($err2.Exception.Message); Fallback2: $($err3.Exception.Message)"
-    throw "All MAS download methods failed"
+    $detail = (@(
+            "primary: $(if ($err1) { $err1.Exception.Message } else { 'failed' })"
+            "fallback 1: $(if ($err2) { $err2.Exception.Message } else { 'failed' })"
+            "fallback 2: $(if ($err3) { $err3.Exception.Message } else { 'failed' })"
+        ) -join '; ')
+    throw "MAS activation failed. All download methods failed ($detail)."
 }
 $Modules["IAS"] = { Invoke-RestMethod https://raw.githubusercontent.com/hanmaoye/IDM-Activation-Script/main/IAS.ps1 | Invoke-Expression }
