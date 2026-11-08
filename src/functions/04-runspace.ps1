@@ -44,65 +44,46 @@ function Get-FmkLibraryPath {
         $cachedStamp = $cachedStamp.Trim()
     }
 
-    if ((Test-Path -LiteralPath $libPath) -and $currentStamp -and $cachedStamp -eq $currentStamp) {
+    # Reuse the copy when it is this build, or when this same session already
+    # accepted a slightly different one (see the mismatch note below). The
+    # second condition stops a CDN refresh mid-session from re-downloading the
+    # bootstrap on every single action.
+    if ((Test-Path -LiteralPath $libPath) -and $currentStamp -and
+        ($cachedStamp -eq $currentStamp -or $global:FmkLibraryAcceptedStamp -eq $currentStamp)) {
         return $libPath
     }
 
     Write-Host "Fetching a runspace bootstrap copy..." -ForegroundColor DarkGray
 
-    # Prefer an immutable commit URL: it serves exactly the build that is
-    # running, while main/ can sit in a CDN cache for minutes after a push.
-    # Fall back to main with a cache-busting query, then to plain main.
-    $downloadUrls = New-Object System.Collections.Generic.List[string]
-    $buildSha = ''
-    if ($currentStamp) {
-        $buildSha = ($currentStamp -split ' @ ')[0].Trim()
-        if ($buildSha -match '^[0-9a-f]{7,40}$' -and $ScriptUrl -match '/main/') {
-            [void]$downloadUrls.Add(($ScriptUrl -replace '/main/', "/$buildSha/"))
-        }
-        [void]$downloadUrls.Add("${ScriptUrl}?v=$([Uri]::EscapeDataString($currentStamp))")
-    }
-    [void]$downloadUrls.Add($ScriptUrl)
-
     $downloadPath = "$libPath.download"
     $downloadedStamp = ''
-    $lastError = ''
-    $gotCopy = $false
     try {
-        foreach ($downloadUrl in $downloadUrls) {
-            Remove-Item -LiteralPath $downloadPath -Force -ErrorAction SilentlyContinue
-            try {
-                Invoke-WebRequest -Uri $downloadUrl -OutFile $downloadPath -UseBasicParsing -ErrorAction Stop
-                $gotCopy = $true
-                $downloaded = [System.IO.File]::ReadAllText($downloadPath)
-                $m = [regex]::Match($downloaded, '(?m)^# Build: (.+?)\s*$')
-                $downloadedStamp = if ($m.Success) { $m.Groups[1].Value.Trim() } else { '' }
+        # Fetch the exact URL this script itself came from, so both land in the
+        # same CDN cache entry. A `?v=` cache-buster would not help: Fastly
+        # ignores the query when keying raw.githubusercontent.com.
+        Remove-Item -LiteralPath $downloadPath -Force -ErrorAction SilentlyContinue
+        Invoke-WebRequest -Uri $ScriptUrl -OutFile $downloadPath -UseBasicParsing -ErrorAction Stop
 
-                # Accept the first copy that is either unversioned or matches
-                # this build; a mismatched main/ response means the CDN is
-                # still behind, so try the next candidate.
-                if (-not $currentStamp -or $downloadedStamp -eq $currentStamp) { break }
-                $lastError = "Downloaded build '$downloadedStamp' does not match running build '$currentStamp'."
-            }
-            catch {
-                $gotCopy = $false
-                $lastError = $_.Exception.Message
-            }
-        }
-
-        if (-not $gotCopy) {
-            throw "Could not download a runspace bootstrap copy. $lastError"
-        }
+        $downloaded = [System.IO.File]::ReadAllText($downloadPath)
+        $m = [regex]::Match($downloaded, '(?m)^# Build: (.+?)\s*$')
+        $downloadedStamp = if ($m.Success) { $m.Groups[1].Value.Trim() } else { '' }
 
         Move-Item -LiteralPath $downloadPath -Destination $libPath -Force
 
         if ($currentStamp) {
-            if ($downloadedStamp -ne $currentStamp) {
-                Write-Log "Runspace bootstrap copy is a different build than this script; background modules may lag until the CDN refreshes." "Warn"
+            if ($downloadedStamp -and $downloadedStamp -ne $currentStamp) {
+                # main/ can lag a push by up to its 5-minute TTL, so the copy
+                # can be one build off. Accept it for this session (it is never
+                # the ancient build this function exists to evict) and warn.
+                Write-Log "Runspace bootstrap copy is build '$downloadedStamp', not '$currentStamp'; background modules may lag until the CDN refreshes." "Warn"
+                $global:FmkLibraryAcceptedStamp = $currentStamp
+            }
+            else {
+                $global:FmkLibraryAcceptedStamp = $null
             }
 
             # Record what was actually downloaded, never the running build: a
-            # stale CDN edge must be retried on the next action rather than
+            # stale CDN edge must be retried on the next launch rather than
             # being marked as current and pinned forever.
             if ($downloadedStamp) {
                 Set-Content -LiteralPath $stampPath -Value $downloadedStamp -NoNewline
